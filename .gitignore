@@ -1,0 +1,12 @@
+﻿venv/
+__pycache__/
+*.pyc
+dataset/
+crops/
+saved_models/
+outputs/
+*.zip
+*.pth
+.env
+.DS_Store
+*.log

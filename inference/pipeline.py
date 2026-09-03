@@ -1,230 +1,972 @@
-# inference/pipeline.py - BEST OF BOTH WORLDS
-import torch
-import cv2
-import numpy as np
-import torchvision.transforms as transforms
-import torchvision.models as models
+# ============================================================
+# Camouflage Breaker - Complete Inference Pipeline
+# ============================================================
+
 import os
 import sys
-import glob
-import re
-import urllib.request
+import json
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+
+# ------------------------------------------------------------
+# Project root
+# ------------------------------------------------------------
+
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+sys.path.insert(0, PROJECT_ROOT)
+
 from models.resunet import ResUNet
 
 
+class ResNet50Classifier(nn.Module):
+
+    def __init__(self, num_classes=69):
+
+        super().__init__()
+
+        self.backbone = models.resnet50(
+            weights=None
+        )
+
+        in_features = self.backbone.fc.in_features
+
+        self.backbone.fc = nn.Sequential(
+
+            nn.Dropout(0.5),
+
+            nn.Linear(
+                in_features,
+                512
+            ),
+
+            nn.ReLU(),
+
+            nn.Dropout(0.3),
+
+            nn.Linear(
+                512,
+                num_classes
+            )
+        )
+
+    def forward(self, x):
+
+        return self.backbone(x)
+
+
 class CamouflageBreakerPipeline:
-    def __init__(self, seg_model_path):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print(f"Using device: {self.device}")
-        
-        # Load segmentation
-        print("Loading segmentation model...")
-        checkpoint = torch.load(seg_model_path, map_location=self.device)
-        self.seg_model = ResUNet(encoder_name="resnet50", encoder_weights=None)
-        
-        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-            self.seg_model.load_state_dict(checkpoint['model_state_dict'])
+
+    def __init__(
+        self,
+        seg_model_path=None,
+        classifier_model_path=None,
+        class_mapping_path=None
+    ):
+
+        # ----------------------------------------------------
+        # Default paths
+        # ----------------------------------------------------
+
+        if seg_model_path is None:
+
+            seg_model_path = os.path.join(
+                PROJECT_ROOT,
+                "saved_models",
+                "resunet_best.pth"
+            )
+
+        if classifier_model_path is None:
+
+            classifier_model_path = os.path.join(
+                PROJECT_ROOT,
+                "saved_models",
+                "classifier_best.pth"
+            )
+
+        if class_mapping_path is None:
+
+            class_mapping_path = os.path.join(
+                PROJECT_ROOT,
+                "saved_models",
+                "class_mapping.json"
+            )
+
+        # ----------------------------------------------------
+        # Device
+        # ----------------------------------------------------
+
+        self.device = torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
+
+        print("=" * 70)
+        print("CAMOUFLAGE BREAKER INFERENCE PIPELINE")
+        print("=" * 70)
+
+        print(
+            f"Using device: {self.device}"
+        )
+
+        # ----------------------------------------------------
+        # Load ResUNet
+        # ----------------------------------------------------
+
+        print(
+            "\nLoading ResUNet segmentation model..."
+        )
+
+        if not os.path.exists(
+            seg_model_path
+        ):
+
+            raise FileNotFoundError(
+                f"ResUNet model not found:\n"
+                f"{seg_model_path}"
+            )
+
+        self.seg_model = ResUNet(
+            encoder_name="resnet50",
+            encoder_weights=None
+        )
+
+        seg_checkpoint = torch.load(
+            seg_model_path,
+            map_location=self.device
+        )
+
+        if (
+            isinstance(seg_checkpoint, dict)
+            and
+            "model_state_dict" in seg_checkpoint
+        ):
+
+            self.seg_model.load_state_dict(
+                seg_checkpoint[
+                    "model_state_dict"
+                ]
+            )
+
         else:
-            self.seg_model.load_state_dict(checkpoint)
-        
-        self.seg_model.to(self.device)
+
+            self.seg_model.load_state_dict(
+                seg_checkpoint
+            )
+
+        self.seg_model.to(
+            self.device
+        )
+
         self.seg_model.eval()
-        print("✅ Segmentation loaded")
-        
-        # Load pre-trained ResNet50
-        print("Loading pre-trained ResNet50...")
-        self.classifier = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-        self.classifier.to(self.device)
+
+        print(
+            "✓ ResUNet loaded"
+        )
+
+        # ----------------------------------------------------
+        # Load Classifier Checkpoint
+        # ----------------------------------------------------
+
+        print(
+            "\nLoading trained ResNet50 classifier..."
+        )
+
+        if not os.path.exists(
+            classifier_model_path
+        ):
+
+            raise FileNotFoundError(
+                f"Classifier model not found:\n"
+                f"{classifier_model_path}"
+            )
+
+        checkpoint = torch.load(
+            classifier_model_path,
+            map_location=self.device
+        )
+
+        # ----------------------------------------------------
+        # Read number of classes
+        # ----------------------------------------------------
+
+        if (
+            isinstance(checkpoint, dict)
+            and
+            "num_classes" in checkpoint
+        ):
+
+            self.num_classes = int(
+                checkpoint["num_classes"]
+            )
+
+        else:
+
+            self.num_classes = 69
+
+        # ----------------------------------------------------
+        # Create EXACT same classifier architecture
+        # used during Colab training
+        # ----------------------------------------------------
+
+        self.classifier = ResNet50Classifier(
+            num_classes=self.num_classes
+        )
+
+        # ----------------------------------------------------
+        # Load state dictionary
+        # ----------------------------------------------------
+
+        if (
+            isinstance(checkpoint, dict)
+            and
+            "model_state_dict" in checkpoint
+        ):
+
+            state_dict = checkpoint[
+                "model_state_dict"
+            ]
+
+        else:
+
+            state_dict = checkpoint
+
+        self.classifier.load_state_dict(
+            state_dict
+        )
+
+        self.classifier.to(
+            self.device
+        )
+
         self.classifier.eval()
-        print("✅ Classifier loaded")
-        
-        # Load ImageNet classes
-        try:
-            url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-            with urllib.request.urlopen(url) as f:
-                self.imagenet_classes = [line.decode().strip() for line in f.readlines()]
-            print(f"✅ Loaded {len(self.imagenet_classes)} ImageNet classes")
-        except:
-            self.imagenet_classes = []
-        
+
+        print(
+            f"✓ ResNet50 classifier loaded "
+            f"({self.num_classes} classes)"
+        )
+
+        # ----------------------------------------------------
+        # Load class mapping
+        # ----------------------------------------------------
+
+        print(
+            "\nLoading class mapping..."
+        )
+
+        if not os.path.exists(
+            class_mapping_path
+        ):
+
+            raise FileNotFoundError(
+                f"Class mapping not found:\n"
+                f"{class_mapping_path}"
+            )
+
+        with open(
+            class_mapping_path,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            mapping = json.load(f)
+
+        self.idx_to_class = mapping[
+            "idx_to_class"
+        ]
+
+        self.class_to_idx = mapping[
+            "class_to_idx"
+        ]
+
+        print(
+            f"✓ Loaded "
+            f"{len(self.idx_to_class)} class names"
+        )
+
+        # ----------------------------------------------------
+        # Classification preprocessing
+        # ----------------------------------------------------
+
         self.cls_transform = transforms.Compose([
+
             transforms.ToPILImage(),
-            transforms.Resize((224, 224)),
+
+            transforms.Resize(
+                (224, 224)
+            ),
+
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                               std=[0.229, 0.224, 0.225])
+
+            transforms.Normalize(
+                mean=[
+                    0.485,
+                    0.456,
+                    0.406
+                ],
+
+                std=[
+                    0.229,
+                    0.224,
+                    0.225
+                ]
+            )
         ])
-        
-        # COD10K class mapping (for filename extraction)
-        self.cod10k_classes = {
-            'BatFish': 'Aquatic', 'ClownFish': 'Aquatic', 'Crab': 'Aquatic',
-            'Crocodile': 'Aquatic', 'CrocodileFish': 'Aquatic', 'Fish': 'Aquatic',
-            'Flounder': 'Aquatic', 'FrogFish': 'Aquatic', 'GhostPipefish': 'Aquatic',
-            'LeafySeaDragon': 'Aquatic', 'Octopus': 'Aquatic', 'Pagurian': 'Aquatic',
-            'Pipefish': 'Aquatic', 'ScorpionFish': 'Aquatic', 'SeaHorse': 'Aquatic',
-            'Shrimp': 'Aquatic', 'Slug': 'Aquatic', 'StarFish': 'Aquatic',
-            'Stingaree': 'Aquatic', 'Turtle': 'Aquatic',
-            'Chameleon': 'Terrestrial', 'Cheetah': 'Terrestrial', 'Deer': 'Terrestrial',
-            'Dog': 'Terrestrial', 'Duck': 'Terrestrial', 'Gecko': 'Terrestrial',
-            'Giraffe': 'Terrestrial', 'Grouse': 'Terrestrial', 'Human': 'Terrestrial',
-            'Kangaroo': 'Terrestrial', 'Leopard': 'Terrestrial', 'Lion': 'Terrestrial',
-            'Lizard': 'Terrestrial', 'Monkey': 'Terrestrial', 'Rabbit': 'Terrestrial',
-            'Reccoon': 'Terrestrial', 'Sciuridae': 'Terrestrial', 'Sheep': 'Terrestrial',
-            'Snake': 'Terrestrial', 'Spider': 'Terrestrial', 'StickInsect': 'Terrestrial',
-            'Tiger': 'Terrestrial', 'Wolf': 'Terrestrial', 'Worm': 'Terrestrial',
-            'Ant': 'Terrestrial', 'Bug': 'Terrestrial', 'Cat': 'Terrestrial',
-            'Caterpillar': 'Terrestrial', 'Centipede': 'Terrestrial',
-            'Bat': 'Flying', 'Bee': 'Flying', 'Beetle': 'Flying',
-            'Bird': 'Flying', 'Bittern': 'Flying', 'Butterfly': 'Flying',
-            'Cicada': 'Flying', 'Dragonfly': 'Flying', 'Frogmouth': 'Flying',
-            'Grasshopper': 'Flying', 'Heron': 'Flying', 'Katydid': 'Flying',
-            'Mantis': 'Flying', 'Mockingbird': 'Flying', 'Moth': 'Flying',
-            'Owl': 'Flying', 'Owlfly': 'Flying', 'Frog': 'Amphibian', 'Toad': 'Amphibian'
-        }
-        
-        print("✅ Pipeline ready!")
-    
-    def preprocess_image(self, image):
-        if image.dtype == np.uint8:
-            image = image.astype(np.float32) / 255.0
-        image_resized = cv2.resize(image, (352, 352))
-        image_tensor = torch.from_numpy(image_resized).permute(2, 0, 1).float()
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        return ((image_tensor - mean) / std).unsqueeze(0).to(self.device)
-    
-    def get_mask(self, image_tensor):
+
+        print(
+            "\n✓ Pipeline ready"
+        )
+
+        print("=" * 70)
+
+    # ========================================================
+    # PREPROCESS IMAGE FOR RESUNET
+    # ========================================================
+
+    def preprocess_image(
+        self,
+        image
+    ):
+
+        image_rgb = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+
+        image_resized = cv2.resize(
+            image_rgb,
+            (352, 352)
+        )
+
+        image_float = (
+            image_resized.astype(
+                np.float32
+            ) / 255.0
+        )
+
+        image_tensor = torch.from_numpy(
+            image_float
+        )
+
+        image_tensor = image_tensor.permute(
+            2,
+            0,
+            1
+        )
+
+        mean = torch.tensor(
+            [0.485, 0.456, 0.406],
+            dtype=torch.float32
+        ).view(
+            3,
+            1,
+            1
+        )
+
+        std = torch.tensor(
+            [0.229, 0.224, 0.225],
+            dtype=torch.float32
+        ).view(
+            3,
+            1,
+            1
+        )
+
+        image_tensor = (
+            image_tensor - mean
+        ) / std
+
+        image_tensor = image_tensor.unsqueeze(
+            0
+        )
+
+        return image_tensor.to(
+            self.device
+        )
+
+    # ========================================================
+    # SEGMENTATION
+    # ========================================================
+
+    def get_mask(
+        self,
+        image_tensor,
+        threshold=0.5
+    ):
+
         with torch.no_grad():
-            output = self.seg_model(image_tensor)
-            mask = torch.sigmoid(output).squeeze().cpu().numpy()
-        return (mask > 0.5).astype(np.uint8)
-    
-    def draw_boundary(self, image, mask, color=(0, 0, 255), thickness=2):
-        mask_resized = cv2.resize(mask.astype(np.uint8), (image.shape[1], image.shape[0]))
-        contours, _ = cv2.findContours(mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            output = self.seg_model(
+                image_tensor
+            )
+
+            probability = torch.sigmoid(
+                output
+            )
+
+            mask = (
+                probability
+                .squeeze()
+                .cpu()
+                .numpy()
+            )
+
+        binary_mask = (
+            mask >= threshold
+        ).astype(
+            np.uint8
+        )
+
+        return binary_mask
+
+    # ========================================================
+    # RESIZE MASK
+    # ========================================================
+
+    def resize_mask(
+        self,
+        mask,
+        image
+    ):
+
+        return cv2.resize(
+            mask,
+            (
+                image.shape[1],
+                image.shape[0]
+            ),
+            interpolation=cv2.INTER_NEAREST
+        )
+
+    # ========================================================
+    # BOUNDARY
+    # ========================================================
+
+    def draw_boundary(
+        self,
+        image,
+        mask,
+        thickness=3
+    ):
+
         result = image.copy()
+
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
         for contour in contours:
-            if len(contour) > 5:
-                cv2.drawContours(result, [contour], -1, color, thickness)
+
+            if cv2.contourArea(
+                contour
+            ) > 20:
+
+                cv2.drawContours(
+                    result,
+                    [contour],
+                    -1,
+                    (0, 0, 255),
+                    thickness
+                )
+
         return result
-    
-    def create_overlay(self, image, mask, color=(0, 0, 255), alpha=0.3):
-        mask_resized = cv2.resize(mask.astype(np.uint8), (image.shape[1], image.shape[0]))
-        colored_mask = np.zeros_like(image)
-        colored_mask[mask_resized > 0] = color
-        return cv2.addWeighted(image, 1 - alpha, colored_mask, alpha, 0)
-    
-    def crop_object(self, image, mask, padding=20):
-        mask_resized = cv2.resize(mask.astype(np.uint8), (image.shape[1], image.shape[0]))
-        coords = np.where(mask_resized > 0)
-        if len(coords[0]) == 0:
+
+    # ========================================================
+    # COLORED OVERLAY
+    # ========================================================
+
+    def create_overlay(
+        self,
+        image,
+        mask,
+        alpha=0.35
+    ):
+
+        colored_mask = np.zeros_like(
+            image
+        )
+
+        colored_mask[
+            mask > 0
+        ] = (
+            0,
+            0,
+            255
+        )
+
+        result = cv2.addWeighted(
+            image,
+            1 - alpha,
+            colored_mask,
+            alpha,
+            0
+        )
+
+        return result
+
+    # ========================================================
+    # CROP OBJECT
+    # ========================================================
+
+    def crop_object(
+        self,
+        image,
+        mask,
+        padding=20
+    ):
+
+        coordinates = np.where(
+            mask > 0
+        )
+
+        if len(
+            coordinates[0]
+        ) == 0:
+
             return None
-        y_min, y_max = coords[0].min(), coords[0].max()
-        x_min, x_max = coords[1].min(), coords[1].max()
-        h, w = image.shape[:2]
-        return image[max(0, y_min-padding):min(h, y_max+padding), 
-                    max(0, x_min-padding):min(w, x_max+padding)]
-    
-    def extract_from_filename(self, filename):
-        """Extract animal name from COD10K filename"""
-        parts = filename.split('-')
-        if len(parts) >= 6:
-            animal_part = parts[5]
-            animal_name = re.sub(r'\d+\.jpg$', '', animal_part)
-            animal_name = re.sub(r'\d+$', '', animal_name)
-            if animal_name in self.cod10k_classes:
-                return animal_name, self.cod10k_classes[animal_name]
-        return None, None
-    
-    def classify_with_imagenet(self, crop):
-        """Classify using pre-trained ResNet50"""
-        if crop is None or crop.size == 0:
-            return "No object detected", 0.0
-        
-        crop_tensor = self.cls_transform(crop).unsqueeze(0).to(self.device)
+
+        y_min = coordinates[0].min()
+        y_max = coordinates[0].max()
+
+        x_min = coordinates[1].min()
+        x_max = coordinates[1].max()
+
+        height, width = image.shape[:2]
+
+        y_min = max(
+            0,
+            y_min - padding
+        )
+
+        y_max = min(
+            height,
+            y_max + padding + 1
+        )
+
+        x_min = max(
+            0,
+            x_min - padding
+        )
+
+        x_max = min(
+            width,
+            x_max + padding + 1
+        )
+
+        crop = image[
+            y_min:y_max,
+            x_min:x_max
+        ]
+
+        if crop.size == 0:
+
+            return None
+
+        return crop
+
+    # ========================================================
+    # CLASSIFICATION
+    # ========================================================
+
+    def classify_object(
+        self,
+        crop
+    ):
+
+        if crop is None:
+
+            return (
+                "No object detected",
+                0.0,
+                None
+            )
+
+        crop_rgb = cv2.cvtColor(
+            crop,
+            cv2.COLOR_BGR2RGB
+        )
+
+        image_tensor = self.cls_transform(
+            crop_rgb
+        )
+
+        image_tensor = image_tensor.unsqueeze(
+            0
+        ).to(
+            self.device
+        )
+
         with torch.no_grad():
-            outputs = self.classifier(crop_tensor)
-            probs = torch.softmax(outputs, dim=1)
-            confidence, pred_idx = torch.max(probs, dim=1)
-        
-        confidence = confidence.item() * 100
-        class_name = self.imagenet_classes[pred_idx.item()] if self.imagenet_classes else f"Class_{pred_idx.item()}"
-        return class_name, confidence
-    
-    def predict(self, image):
-        image_path = None
-        if isinstance(image, str):
+
+            outputs = self.classifier(
+                image_tensor
+            )
+
+            probabilities = torch.softmax(
+                outputs,
+                dim=1
+            )
+
+            confidence, predicted_index = (
+                torch.max(
+                    probabilities,
+                    dim=1
+                )
+            )
+
+        predicted_index = (
+            predicted_index.item()
+        )
+
+        confidence = (
+            confidence.item() * 100
+        )
+
+        class_name = self.idx_to_class.get(
+            str(predicted_index),
+            f"Class_{predicted_index + 1}"
+        )
+
+        return (
+            class_name,
+            confidence,
+            predicted_index
+        )
+
+    # ========================================================
+    # COMPLETE PREDICTION
+    # ========================================================
+
+    def predict(
+        self,
+        image,
+        threshold=0.5
+    ):
+
+        # ----------------------------------------------------
+        # Load image
+        # ----------------------------------------------------
+
+        if isinstance(
+            image,
+            str
+        ):
+
             image_path = image
-            image = cv2.imread(image)
+
+            image = cv2.imread(
+                image_path
+            )
+
             if image is None:
-                raise ValueError(f"Could not load image: {image}")
-        
+
+                raise ValueError(
+                    f"Could not load image:\n"
+                    f"{image_path}"
+                )
+
+        # ----------------------------------------------------
+        # Original
+        # ----------------------------------------------------
+
         original = image.copy()
-        image_tensor = self.preprocess_image(image)
-        mask = self.get_mask(image_tensor)
-        mask_resized = cv2.resize(mask.astype(np.uint8), (image.shape[1], image.shape[0]))
-        
-        boundary = self.draw_boundary(original, mask)
-        overlay = self.create_overlay(original, mask)
-        crop = self.crop_object(original, mask)
-        
-        # ===== SMART CLASSIFICATION =====
-        class_name = None
-        confidence = 0.0
-        super_class = "Unknown"
-        
-        # 1. Check if it's a COD10K image (extract from filename)
-        if image_path:
-            class_name, super_class = self.extract_from_filename(os.path.basename(image_path))
-            if class_name:
-                confidence = 85.0  # High confidence for dataset images
-                print(f"✅ COD10K image detected: {class_name}")
-        
-        # 2. If not COD10K, use pre-trained ResNet50
-        if class_name is None and crop is not None:
-            class_name, confidence = self.classify_with_imagenet(crop)
-            print(f"✅ Classified with ImageNet: {class_name} ({confidence:.1f}%)")
-        
-        # 3. If still no class, use fallback
-        if class_name is None:
-            class_name = "Unknown"
-            confidence = 0.0
-        
+
+        # ----------------------------------------------------
+        # ResUNet
+        # ----------------------------------------------------
+
+        image_tensor = self.preprocess_image(
+            image
+        )
+
+        mask_small = self.get_mask(
+            image_tensor,
+            threshold=threshold
+        )
+
+        mask = self.resize_mask(
+            mask_small,
+            image
+        )
+
+        # ----------------------------------------------------
+        # Check detection
+        # ----------------------------------------------------
+
+        object_pixels = np.sum(
+            mask > 0
+        )
+
+        if object_pixels == 0:
+
+            return {
+
+                "original":
+                    original,
+
+                "mask":
+                    mask,
+
+                "boundary":
+                    original.copy(),
+
+                "overlay":
+                    original.copy(),
+
+                "crop":
+                    None,
+
+                "class_name":
+                    "No object detected",
+
+                "confidence":
+                    0.0,
+
+                "predicted_index":
+                    None,
+
+                "object_detected":
+                    False
+            }
+
+        # ----------------------------------------------------
+        # Boundary
+        # ----------------------------------------------------
+
+        boundary = self.draw_boundary(
+            original,
+            mask
+        )
+
+        # ----------------------------------------------------
+        # Overlay
+        # ----------------------------------------------------
+
+        overlay = self.create_overlay(
+            original,
+            mask
+        )
+
+        # ----------------------------------------------------
+        # Crop
+        # ----------------------------------------------------
+
+        crop = self.crop_object(
+            original,
+            mask
+        )
+
+        # ----------------------------------------------------
+        # ResNet50
+        # ----------------------------------------------------
+
+        (
+            class_name,
+            confidence,
+            predicted_index
+        ) = self.classify_object(
+            crop
+        )
+
         return {
-            'original': original,
-            'mask': mask_resized,
-            'boundary': boundary,
-            'overlay': overlay,
-            'crop': crop,
-            'class_name': class_name,
-            'confidence': confidence,
-            'super_class': super_class
+
+            "original":
+                original,
+
+            "mask":
+                mask,
+
+            "boundary":
+                boundary,
+
+            "overlay":
+                overlay,
+
+            "crop":
+                crop,
+
+            "class_name":
+                class_name,
+
+            "confidence":
+                confidence,
+
+            "predicted_index":
+                predicted_index,
+
+            "object_detected":
+                True
         }
 
+
+# ============================================================
+# TEST
+# ============================================================
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("Testing Camouflage Breaker Pipeline")
-    print("=" * 50)
-    
-    pipeline = CamouflageBreakerPipeline(seg_model_path='saved_models/resunet_best.pth')
-    
-    # Test COD10K images
-    test_images = glob.glob('dataset/Test/Image/*.jpg')
-    
-    print("\nTesting COD10K Images:")
-    for img_path in test_images[:10]:
-        filename = os.path.basename(img_path)
-        result = pipeline.predict(img_path)
-        print(f"  {filename}: {result['class_name']} ({result['confidence']:.1f}%)")
-    
-    # Test on a new image if available
-    new_image = 'test_new.jpg'
-    if os.path.exists(new_image):
-        result = pipeline.predict(new_image)
-        print(f"\nNew Image: {result['class_name']} ({result['confidence']:.1f}%)")
-    
-    os.makedirs('outputs', exist_ok=True)
-    print("\n✅ Results saved to outputs/")
+
+    print("\n")
+    print("=" * 70)
+    print("TESTING CAMOUFLAGE BREAKER")
+    print("=" * 70)
+
+    pipeline = CamouflageBreakerPipeline()
+
+    test_dir = os.path.join(
+        PROJECT_ROOT,
+        "dataset",
+        "Test",
+        "Image"
+    )
+
+    if not os.path.exists(
+        test_dir
+    ):
+
+        print(
+            f"\nTest folder not found:\n"
+            f"{test_dir}"
+        )
+
+        sys.exit()
+
+    test_images = [
+
+        os.path.join(
+            test_dir,
+            filename
+        )
+
+        for filename in sorted(
+            os.listdir(test_dir)
+        )
+
+        if filename.lower().endswith(
+            (
+                ".jpg",
+                ".jpeg",
+                ".png"
+            )
+        )
+    ]
+
+    if len(test_images) == 0:
+
+        print(
+            "\nNo test images found."
+        )
+
+        sys.exit()
+
+    print(
+        f"\nFound {len(test_images)} test images."
+    )
+
+    print(
+        "Testing first 5 images...\n"
+    )
+
+    output_dir = os.path.join(
+        PROJECT_ROOT,
+        "outputs"
+    )
+
+    os.makedirs(
+        output_dir,
+        exist_ok=True
+    )
+
+    for image_path in test_images[:5]:
+
+        print("-" * 70)
+
+        filename = os.path.basename(
+            image_path
+        )
+
+        print(
+            f"Image: {filename}"
+        )
+
+        try:
+
+            result = pipeline.predict(
+                image_path
+            )
+
+            print(
+                f"Object detected: "
+                f"{result['object_detected']}"
+            )
+
+            print(
+                f"Prediction: "
+                f"{result['class_name']}"
+            )
+
+            print(
+                f"Confidence: "
+                f"{result['confidence']:.2f}%"
+            )
+
+            base_name = os.path.splitext(
+                filename
+            )[0]
+
+            cv2.imwrite(
+                os.path.join(
+                    output_dir,
+                    f"{base_name}_boundary.jpg"
+                ),
+                result["boundary"]
+            )
+
+            cv2.imwrite(
+                os.path.join(
+                    output_dir,
+                    f"{base_name}_overlay.jpg"
+                ),
+                result["overlay"]
+            )
+
+            if result["crop"] is not None:
+
+                cv2.imwrite(
+                    os.path.join(
+                        output_dir,
+                        f"{base_name}_crop.jpg"
+                    ),
+                    result["crop"]
+                )
+
+            print(
+                "✓ Results saved"
+            )
+
+        except Exception as e:
+
+            print(
+                f"❌ Error: {e}"
+            )
+
+    print("\n" + "=" * 70)
+    print("PIPELINE TEST COMPLETE")
+    print("=" * 70)
+
+    print(
+        f"Results folder:\n"
+        f"{output_dir}"
+    )

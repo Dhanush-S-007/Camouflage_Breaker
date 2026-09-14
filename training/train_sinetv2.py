@@ -1,12 +1,13 @@
 import os
 import sys
 import random
-import numpy as np
+import importlib.util
+
 import cv2
+import numpy as np
 from tqdm import tqdm
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
@@ -34,26 +35,32 @@ SINET_LIB = os.path.join(
     "lib"
 )
 
-if not os.path.exists(SINET_ROOT):
+if not os.path.isdir(SINET_ROOT):
     raise FileNotFoundError(
-        f"SINet-V2 source not found:\n{SINET_ROOT}"
+        f"SINet-V2 source folder not found:\n{SINET_ROOT}"
     )
 
-if not os.path.exists(SINET_LIB):
+if not os.path.isdir(SINET_LIB):
     raise FileNotFoundError(
         f"SINet-V2 lib folder not found:\n{SINET_LIB}"
     )
 
-sys.path.insert(0, SINET_ROOT)
-sys.path.insert(0, SINET_LIB)
+
+# ============================================================
+# CREATE LIB PACKAGE
+# ============================================================
+
+import types
+
+lib_package = types.ModuleType("lib")
+lib_package.__path__ = [SINET_LIB]
+
+sys.modules["lib"] = lib_package
 
 
 # ============================================================
-# IMPORT SINET-V2
+# MODULE LOADER
 # ============================================================
-
-import importlib.util
-
 
 def load_module(module_name, file_path):
 
@@ -62,7 +69,14 @@ def load_module(module_name, file_path):
         file_path
     )
 
-    module = importlib.util.module_from_spec(spec)
+    if spec is None or spec.loader is None:
+        raise ImportError(
+            f"Could not load module:\n{file_path}"
+        )
+
+    module = importlib.util.module_from_spec(
+        spec
+    )
 
     sys.modules[module_name] = module
 
@@ -71,25 +85,26 @@ def load_module(module_name, file_path):
     return module
 
 
-res2net_file = os.path.join(
+# ============================================================
+# LOAD RES2NET
+# ============================================================
+
+RES2NET_FILE = os.path.join(
     SINET_LIB,
     "Res2Net_v1b.py"
 )
 
-network_file = os.path.join(
-    SINET_LIB,
-    "Network_Res2Net_GRA_NCD.py"
+if not os.path.isfile(RES2NET_FILE):
+    raise FileNotFoundError(
+        f"Res2Net source not found:\n{RES2NET_FILE}"
+    )
+
+res2net_module = load_module(
+    "lib.Res2Net_v1b",
+    RES2NET_FILE
 )
 
-if not os.path.exists(res2net_file):
-    raise FileNotFoundError(
-        f"Res2Net source not found:\n{res2net_file}"
-    )
-
-if not os.path.exists(network_file):
-    raise FileNotFoundError(
-        f"SINet-V2 network source not found:\n{network_file}"
-    )
+lib_package.Res2Net_v1b = res2net_module
 
 
 # ============================================================
@@ -106,7 +121,10 @@ for root, dirs, files in os.walk(
     )
 ):
 
-    if "res2net50_v1b_26w_4s-3cf99910.pth" in files:
+    if (
+        "res2net50_v1b_26w_4s-3cf99910.pth"
+        in files
+    ):
 
         RES2NET_CHECKPOINT = os.path.join(
             root,
@@ -118,22 +136,12 @@ for root, dirs, files in os.walk(
 
 if RES2NET_CHECKPOINT is None:
     raise FileNotFoundError(
-        "Res2Net checkpoint was not found."
+        "Res2Net checkpoint not found."
     )
 
 
 # ============================================================
-# LOAD RES2NET MODULE
-# ============================================================
-
-res2net_module = load_module(
-    "lib.Res2Net_v1b",
-    res2net_file
-)
-
-
-# ============================================================
-# PATCH RES2NET PRETRAINED FUNCTION
+# PATCH RES2NET LOADING
 # ============================================================
 
 original_res2net_function = (
@@ -189,26 +197,22 @@ res2net_module.res2net50_v1b_26w_4s = (
 
 
 # ============================================================
-# MAKE RES2NET AVAILABLE AS lib.Res2Net_v1b
-# ============================================================
-
-import types
-
-lib_module = types.ModuleType("lib")
-
-lib_module.Res2Net_v1b = res2net_module
-
-sys.modules["lib"] = lib_module
-sys.modules["lib.Res2Net_v1b"] = res2net_module
-
-
-# ============================================================
 # LOAD SINET-V2 NETWORK
 # ============================================================
 
+NETWORK_FILE = os.path.join(
+    SINET_LIB,
+    "Network_Res2Net_GRA_NCD.py"
+)
+
+if not os.path.isfile(NETWORK_FILE):
+    raise FileNotFoundError(
+        f"SINet-V2 network source not found:\n{NETWORK_FILE}"
+    )
+
 network_module = load_module(
     "lib.Network_Res2Net_GRA_NCD",
-    network_file
+    NETWORK_FILE
 )
 
 Network = network_module.Network
@@ -288,7 +292,7 @@ BEST_MODEL = os.path.join(
 
 
 # ============================================================
-# RANDOM SEED
+# SEED
 # ============================================================
 
 random.seed(SEED)
@@ -305,7 +309,7 @@ if torch.cuda.is_available():
 # DATASET
 # ============================================================
 
-class COD10KSegmentationDataset(Dataset):
+class COD10KDataset(Dataset):
 
     def __init__(
         self,
@@ -316,9 +320,7 @@ class COD10KSegmentationDataset(Dataset):
     ):
 
         self.image_dir = image_dir
-
         self.mask_dir = mask_dir
-
         self.augment = augment
 
         image_files = sorted([
@@ -329,32 +331,46 @@ class COD10KSegmentationDataset(Dataset):
             )
         ])
 
-        pairs = []
+        mask_files = sorted([
+            f
+            for f in os.listdir(mask_dir)
+            if f.lower().endswith(
+                (".png", ".jpg", ".jpeg")
+            )
+        ])
 
         mask_lookup = {}
 
-        for mask_file in os.listdir(mask_dir):
+        for filename in mask_files:
 
             base = os.path.splitext(
-                mask_file
+                filename
             )[0]
 
-            mask_lookup[base] = mask_file
+            mask_lookup[base] = filename
 
-        for image_file in image_files:
+        pairs = []
+
+        for filename in image_files:
 
             base = os.path.splitext(
-                image_file
+                filename
             )[0]
 
             if base in mask_lookup:
 
                 pairs.append(
                     (
-                        image_file,
+                        filename,
                         mask_lookup[base]
                     )
                 )
+
+        if len(pairs) == 0:
+
+            raise RuntimeError(
+                "No image-mask pairs were found."
+            )
 
         if indices is not None:
 
@@ -644,20 +660,19 @@ def calculate_loss(
 
         for output in outputs:
 
-            if output is None:
-                continue
+            if output is not None:
 
-            losses.append(
-                structure_loss(
-                    output,
-                    mask
+                losses.append(
+                    structure_loss(
+                        output,
+                        mask
+                    )
                 )
-            )
 
-        if len(losses) == 0:
+        if not losses:
 
             raise RuntimeError(
-                "SINet-V2 returned no valid outputs."
+                "SINet-V2 returned no valid output."
             )
 
         return sum(losses) / len(losses)
@@ -768,7 +783,9 @@ def main():
     # Check dataset
     # --------------------------------------------------------
 
-    print("Checking dataset...")
+    print(
+        "Checking dataset..."
+    )
 
     if not os.path.isdir(
         TRAIN_IMAGE_DIR
@@ -786,29 +803,25 @@ def main():
             TRAIN_MASK_DIR
         )
 
-    image_count = len(
-        [
-            f
-            for f in os.listdir(
-                TRAIN_IMAGE_DIR
-            )
-            if f.lower().endswith(
-                (".jpg", ".jpeg", ".png")
-            )
-        ]
-    )
+    image_count = len([
+        f
+        for f in os.listdir(
+            TRAIN_IMAGE_DIR
+        )
+        if f.lower().endswith(
+            (".jpg", ".jpeg", ".png")
+        )
+    ])
 
-    mask_count = len(
-        [
-            f
-            for f in os.listdir(
-                TRAIN_MASK_DIR
-            )
-            if f.lower().endswith(
-                (".jpg", ".jpeg", ".png")
-            )
-        ]
-    )
+    mask_count = len([
+        f
+        for f in os.listdir(
+            TRAIN_MASK_DIR
+        )
+        if f.lower().endswith(
+            (".png", ".jpg", ".jpeg")
+        )
+    ])
 
     print(
         "Training images:",
@@ -820,22 +833,10 @@ def main():
         mask_count
     )
 
-    if image_count != 6000:
-
-        raise RuntimeError(
-            f"Expected 6000 images, found {image_count}"
-        )
-
-    if mask_count != 6000:
-
-        raise RuntimeError(
-            f"Expected 6000 masks, found {mask_count}"
-        )
-
     print()
 
     # --------------------------------------------------------
-    # Check weights
+    # Check pretrained files
     # --------------------------------------------------------
 
     print(
@@ -859,13 +860,11 @@ def main():
         )
 
     print(
-        "SINet-V2:",
-        PRETRAINED_SINET
+        "SINet-V2 checkpoint: OK"
     )
 
     print(
-        "Res2Net:",
-        RES2NET_CHECKPOINT
+        "Res2Net checkpoint : OK"
     )
 
     print()
@@ -878,7 +877,7 @@ def main():
         "Creating dataset..."
     )
 
-    base_dataset = COD10KSegmentationDataset(
+    base_dataset = COD10KDataset(
         TRAIN_IMAGE_DIR,
         TRAIN_MASK_DIR
     )
@@ -918,14 +917,14 @@ def main():
         val_subset.indices
     )
 
-    train_dataset = COD10KSegmentationDataset(
+    train_dataset = COD10KDataset(
         TRAIN_IMAGE_DIR,
         TRAIN_MASK_DIR,
         indices=train_indices,
         augment=True
     )
 
-    val_dataset = COD10KSegmentationDataset(
+    val_dataset = COD10KDataset(
         TRAIN_IMAGE_DIR,
         TRAIN_MASK_DIR,
         indices=val_indices,
@@ -1187,10 +1186,7 @@ def main():
     )
 
     print(
-        "Best model:"
-    )
-
-    print(
+        "Best model:",
         BEST_MODEL
     )
 

@@ -11,93 +11,231 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SINET_SOURCE = os.path.join(
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+SINET_ROOT = os.path.join(
     PROJECT_ROOT,
     "models",
     "sinetv2",
     "source"
 )
 
-sys.path.insert(0, SINET_SOURCE)
+SINET_LIB = os.path.join(
+    SINET_ROOT,
+    "lib"
+)
 
-import lib.Res2Net_v1b as res2net_module
+if not os.path.exists(SINET_ROOT):
+    raise FileNotFoundError(
+        f"SINet-V2 source not found:\n{SINET_ROOT}"
+    )
+
+if not os.path.exists(SINET_LIB):
+    raise FileNotFoundError(
+        f"SINet-V2 lib folder not found:\n{SINET_LIB}"
+    )
+
+sys.path.insert(0, SINET_ROOT)
+sys.path.insert(0, SINET_LIB)
 
 
-# ---------------------------------------------------------
-# Find local Res2Net checkpoint
-# ---------------------------------------------------------
+# ============================================================
+# IMPORT SINET-V2
+# ============================================================
+
+import importlib.util
+
+
+def load_module(module_name, file_path):
+
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        file_path
+    )
+
+    module = importlib.util.module_from_spec(spec)
+
+    sys.modules[module_name] = module
+
+    spec.loader.exec_module(module)
+
+    return module
+
+
+res2net_file = os.path.join(
+    SINET_LIB,
+    "Res2Net_v1b.py"
+)
+
+network_file = os.path.join(
+    SINET_LIB,
+    "Network_Res2Net_GRA_NCD.py"
+)
+
+if not os.path.exists(res2net_file):
+    raise FileNotFoundError(
+        f"Res2Net source not found:\n{res2net_file}"
+    )
+
+if not os.path.exists(network_file):
+    raise FileNotFoundError(
+        f"SINet-V2 network source not found:\n{network_file}"
+    )
+
+
+# ============================================================
+# FIND RES2NET CHECKPOINT
+# ============================================================
 
 RES2NET_CHECKPOINT = None
 
 for root, dirs, files in os.walk(
-    os.path.join(PROJECT_ROOT, "models", "sinetv2")
+    os.path.join(
+        PROJECT_ROOT,
+        "models",
+        "sinetv2"
+    )
 ):
+
     if "res2net50_v1b_26w_4s-3cf99910.pth" in files:
+
         RES2NET_CHECKPOINT = os.path.join(
             root,
             "res2net50_v1b_26w_4s-3cf99910.pth"
         )
+
         break
+
 
 if RES2NET_CHECKPOINT is None:
     raise FileNotFoundError(
-        "Res2Net checkpoint not found."
+        "Res2Net checkpoint was not found."
     )
 
 
-# ---------------------------------------------------------
-# Patch Res2Net pretrained loading
-# ---------------------------------------------------------
+# ============================================================
+# LOAD RES2NET MODULE
+# ============================================================
 
-_original_res2net = res2net_module.res2net50_v1b_26w_4s
+res2net_module = load_module(
+    "lib.Res2Net_v1b",
+    res2net_file
+)
 
 
-def local_res2net50_v1b_26w_4s(pretrained=True):
-    model = _original_res2net(pretrained=False)
+# ============================================================
+# PATCH RES2NET PRETRAINED FUNCTION
+# ============================================================
+
+original_res2net_function = (
+    res2net_module.res2net50_v1b_26w_4s
+)
+
+
+def local_res2net50_v1b_26w_4s(
+    pretrained=True,
+    **kwargs
+):
+
+    model = original_res2net_function(
+        pretrained=False,
+        **kwargs
+    )
 
     if pretrained:
+
         checkpoint = torch.load(
             RES2NET_CHECKPOINT,
             map_location="cpu"
         )
 
         if isinstance(checkpoint, dict):
+
             if "state_dict" in checkpoint:
                 checkpoint = checkpoint["state_dict"]
+
+            elif "model_state_dict" in checkpoint:
+                checkpoint = checkpoint["model_state_dict"]
 
         cleaned = {}
 
         for key, value in checkpoint.items():
+
             if key.startswith("module."):
                 key = key[7:]
+
             cleaned[key] = value
 
-        model.load_state_dict(cleaned, strict=False)
+        model.load_state_dict(
+            cleaned,
+            strict=False
+        )
 
     return model
 
 
-res2net_module.res2net50_v1b_26w_4s = local_res2net50_v1b_26w_4s
+res2net_module.res2net50_v1b_26w_4s = (
+    local_res2net50_v1b_26w_4s
+)
 
-from lib.Network_Res2Net_GRA_NCD import Network
+
+# ============================================================
+# MAKE RES2NET AVAILABLE AS lib.Res2Net_v1b
+# ============================================================
+
+import types
+
+lib_module = types.ModuleType("lib")
+
+lib_module.Res2Net_v1b = res2net_module
+
+sys.modules["lib"] = lib_module
+sys.modules["lib.Res2Net_v1b"] = res2net_module
 
 
-# ---------------------------------------------------------
-# Settings
-# ---------------------------------------------------------
+# ============================================================
+# LOAD SINET-V2 NETWORK
+# ============================================================
+
+network_module = load_module(
+    "lib.Network_Res2Net_GRA_NCD",
+    network_file
+)
+
+Network = network_module.Network
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
 
 IMAGE_SIZE = 352
+
 BATCH_SIZE = 8
+
 EPOCHS = 20
 
 LEARNING_RATE = 1e-4
+
 WEIGHT_DECAY = 1e-5
 
 VAL_RATIO = 0.10
 
 SEED = 42
+
+
+# ============================================================
+# DATASET PATHS
+# ============================================================
 
 TRAIN_IMAGE_DIR = os.path.join(
     PROJECT_ROOT,
@@ -113,6 +251,11 @@ TRAIN_MASK_DIR = os.path.join(
     "GT_Object"
 )
 
+
+# ============================================================
+# PRETRAINED SINET-V2
+# ============================================================
+
 PRETRAINED_SINET = os.path.join(
     PROJECT_ROOT,
     "models",
@@ -122,10 +265,20 @@ PRETRAINED_SINET = os.path.join(
     "Net_epoch_best.pth"
 )
 
+
+# ============================================================
+# OUTPUT
+# ============================================================
+
 SAVE_DIR = os.path.join(
     PROJECT_ROOT,
     "saved_models",
     "sinetv2"
+)
+
+os.makedirs(
+    SAVE_DIR,
+    exist_ok=True
 )
 
 BEST_MODEL = os.path.join(
@@ -133,24 +286,24 @@ BEST_MODEL = os.path.join(
     "sinetv2_cod10k_best.pth"
 )
 
-os.makedirs(SAVE_DIR, exist_ok=True)
 
-
-# ---------------------------------------------------------
-# Reproducibility
-# ---------------------------------------------------------
+# ============================================================
+# RANDOM SEED
+# ============================================================
 
 random.seed(SEED)
+
 np.random.seed(SEED)
+
 torch.manual_seed(SEED)
 
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
 
-# ---------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------
+# ============================================================
+# DATASET
+# ============================================================
 
 class COD10KSegmentationDataset(Dataset):
 
@@ -163,58 +316,77 @@ class COD10KSegmentationDataset(Dataset):
     ):
 
         self.image_dir = image_dir
+
         self.mask_dir = mask_dir
+
         self.augment = augment
 
-        image_files = [
-            f for f in os.listdir(image_dir)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
-        ]
+        image_files = sorted([
+            f
+            for f in os.listdir(image_dir)
+            if f.lower().endswith(
+                (".jpg", ".jpeg", ".png")
+            )
+        ])
 
-        image_files.sort()
+        pairs = []
 
-        valid_files = []
+        mask_lookup = {}
 
-        for filename in image_files:
+        for mask_file in os.listdir(mask_dir):
 
-            base = os.path.splitext(filename)[0]
+            base = os.path.splitext(
+                mask_file
+            )[0]
 
-            mask_path = None
+            mask_lookup[base] = mask_file
 
-            for ext in [".png", ".jpg", ".jpeg"]:
-                candidate = os.path.join(
-                    mask_dir,
-                    base + ext
-                )
+        for image_file in image_files:
 
-                if os.path.exists(candidate):
-                    mask_path = candidate
-                    break
+            base = os.path.splitext(
+                image_file
+            )[0]
 
-            if mask_path is not None:
-                valid_files.append(
-                    (filename, os.path.basename(mask_path))
+            if base in mask_lookup:
+
+                pairs.append(
+                    (
+                        image_file,
+                        mask_lookup[base]
+                    )
                 )
 
         if indices is not None:
-            valid_files = [
-                valid_files[i]
+
+            pairs = [
+                pairs[i]
                 for i in indices
             ]
 
-        self.files = valid_files
+        self.files = pairs
 
         self.normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
+            mean=[
+                0.485,
+                0.456,
+                0.406
+            ],
+            std=[
+                0.229,
+                0.224,
+                0.225
+            ]
         )
 
     def __len__(self):
+
         return len(self.files)
 
     def __getitem__(self, index):
 
-        image_name, mask_name = self.files[index]
+        image_name, mask_name = (
+            self.files[index]
+        )
 
         image_path = os.path.join(
             self.image_dir,
@@ -226,16 +398,8 @@ class COD10KSegmentationDataset(Dataset):
             mask_name
         )
 
-        image = cv2.imread(image_path)
-
-        if image is None:
-            raise RuntimeError(
-                f"Could not read image: {image_path}"
-            )
-
-        image = cv2.cvtColor(
-            image,
-            cv2.COLOR_BGR2RGB
+        image = cv2.imread(
+            image_path
         )
 
         mask = cv2.imread(
@@ -243,41 +407,77 @@ class COD10KSegmentationDataset(Dataset):
             cv2.IMREAD_GRAYSCALE
         )
 
-        if mask is None:
+        if image is None:
+
             raise RuntimeError(
-                f"Could not read mask: {mask_path}"
+                f"Cannot read image:\n{image_path}"
             )
+
+        if mask is None:
+
+            raise RuntimeError(
+                f"Cannot read mask:\n{mask_path}"
+            )
+
+        image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
 
         image = cv2.resize(
             image,
-            (IMAGE_SIZE, IMAGE_SIZE),
+            (
+                IMAGE_SIZE,
+                IMAGE_SIZE
+            ),
             interpolation=cv2.INTER_LINEAR
         )
 
         mask = cv2.resize(
             mask,
-            (IMAGE_SIZE, IMAGE_SIZE),
+            (
+                IMAGE_SIZE,
+                IMAGE_SIZE
+            ),
             interpolation=cv2.INTER_NEAREST
         )
 
         if self.augment:
 
             if random.random() < 0.5:
-                image = np.fliplr(image).copy()
-                mask = np.fliplr(mask).copy()
+
+                image = np.fliplr(
+                    image
+                ).copy()
+
+                mask = np.fliplr(
+                    mask
+                ).copy()
 
             if random.random() < 0.5:
-                image = np.flipud(image).copy()
-                mask = np.flipud(mask).copy()
+
+                image = np.flipud(
+                    image
+                ).copy()
+
+                mask = np.flipud(
+                    mask
+                ).copy()
 
             if random.random() < 0.3:
 
-                angle = random.choice(
-                    [-10, -5, 5, 10]
-                )
+                angle = random.choice([
+                    -10,
+                    -5,
+                    5,
+                    10
+                ])
 
                 matrix = cv2.getRotationMatrix2D(
-                    (IMAGE_SIZE // 2, IMAGE_SIZE // 2),
+                    (
+                        IMAGE_SIZE // 2,
+                        IMAGE_SIZE // 2
+                    ),
                     angle,
                     1.0
                 )
@@ -285,41 +485,72 @@ class COD10KSegmentationDataset(Dataset):
                 image = cv2.warpAffine(
                     image,
                     matrix,
-                    (IMAGE_SIZE, IMAGE_SIZE),
+                    (
+                        IMAGE_SIZE,
+                        IMAGE_SIZE
+                    ),
                     borderMode=cv2.BORDER_REFLECT
                 )
 
                 mask = cv2.warpAffine(
                     mask,
                     matrix,
-                    (IMAGE_SIZE, IMAGE_SIZE),
+                    (
+                        IMAGE_SIZE,
+                        IMAGE_SIZE
+                    ),
                     flags=cv2.INTER_NEAREST,
                     borderMode=cv2.BORDER_CONSTANT
                 )
 
-        image = image.astype(np.float32) / 255.0
-        mask = mask.astype(np.float32) / 255.0
-
-        image = torch.from_numpy(
-            image.transpose(2, 0, 1)
+        image = (
+            image.astype(
+                np.float32
+            )
+            / 255.0
         )
 
-        image = self.normalize(image)
+        mask = (
+            mask.astype(
+                np.float32
+            )
+            / 255.0
+        )
 
-        mask = torch.from_numpy(mask).unsqueeze(0)
+        image = torch.from_numpy(
+            image.transpose(
+                2,
+                0,
+                1
+            )
+        )
 
-        mask = (mask > 0.5).float()
+        image = self.normalize(
+            image
+        )
+
+        mask = torch.from_numpy(
+            mask
+        ).unsqueeze(0)
+
+        mask = (
+            mask > 0.5
+        ).float()
 
         return image, mask
 
 
-# ---------------------------------------------------------
-# Structure loss
-# ---------------------------------------------------------
+# ============================================================
+# STRUCTURE LOSS
+# ============================================================
 
-def structure_loss(pred, mask):
+def structure_loss(
+    pred,
+    mask
+):
 
     if pred.shape[-2:] != mask.shape[-2:]:
+
         pred = F.interpolate(
             pred,
             size=mask.shape[-2:],
@@ -327,9 +558,21 @@ def structure_loss(pred, mask):
             align_corners=False
         )
 
-    weit = 1 + 5 * torch.abs(
-        F.avg_pool2d(mask, kernel_size=31, stride=1, padding=15)
-        - mask
+    weit = (
+        1
+        +
+        5
+        *
+        torch.abs(
+            F.avg_pool2d(
+                mask,
+                kernel_size=31,
+                stride=1,
+                padding=15
+            )
+            -
+            mask
+        )
     )
 
     wbce = F.binary_cross_entropy_with_logits(
@@ -339,23 +582,39 @@ def structure_loss(pred, mask):
     )
 
     wbce = (
-        weit * wbce
-    ).sum(
-        dim=(2, 3)
-    ) / weit.sum(
-        dim=(2, 3)
+        (
+            weit * wbce
+        ).sum(
+            dim=(2, 3)
+        )
+        /
+        weit.sum(
+            dim=(2, 3)
+        )
     )
 
-    pred_sigmoid = torch.sigmoid(pred)
+    pred_sigmoid = torch.sigmoid(
+        pred
+    )
 
     inter = (
-        pred_sigmoid * mask * weit
+        pred_sigmoid
+        *
+        mask
+        *
+        weit
     ).sum(
         dim=(2, 3)
     )
 
     union = (
-        (pred_sigmoid + mask) * weit
+        (
+            pred_sigmoid
+            +
+            mask
+        )
+        *
+        weit
     ).sum(
         dim=(2, 3)
     )
@@ -366,21 +625,39 @@ def structure_loss(pred, mask):
         (union - inter + 1)
     )
 
-    return (wbce + wiou).mean()
+    return (
+        wbce + wiou
+    ).mean()
 
 
-def calculate_loss(outputs, mask):
+def calculate_loss(
+    outputs,
+    mask
+):
 
-    if isinstance(outputs, (tuple, list)):
+    if isinstance(
+        outputs,
+        (tuple, list)
+    ):
 
         losses = []
 
         for output in outputs:
+
+            if output is None:
+                continue
+
             losses.append(
                 structure_loss(
                     output,
                     mask
                 )
+            )
+
+        if len(losses) == 0:
+
+            raise RuntimeError(
+                "SINet-V2 returned no valid outputs."
             )
 
         return sum(losses) / len(losses)
@@ -391,25 +668,39 @@ def calculate_loss(outputs, mask):
     )
 
 
-# ---------------------------------------------------------
-# Validation
-# ---------------------------------------------------------
+# ============================================================
+# VALIDATION
+# ============================================================
 
-def validate(model, loader, device):
+def validate(
+    model,
+    loader,
+    device
+):
 
     model.eval()
 
     total_loss = 0.0
-    count = 0
+
+    batches = 0
 
     with torch.no_grad():
 
         for images, masks in loader:
 
-            images = images.to(device)
-            masks = masks.to(device)
+            images = images.to(
+                device,
+                non_blocking=True
+            )
 
-            outputs = model(images)
+            masks = masks.to(
+                device,
+                non_blocking=True
+            )
+
+            outputs = model(
+                images
+            )
 
             loss = calculate_loss(
                 outputs,
@@ -417,19 +708,28 @@ def validate(model, loader, device):
             )
 
             total_loss += loss.item()
-            count += 1
 
-    return total_loss / max(count, 1)
+            batches += 1
+
+    return (
+        total_loss
+        /
+        max(
+            batches,
+            1
+        )
+    )
 
 
-# ---------------------------------------------------------
-# Main
-# ---------------------------------------------------------
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available()
+        "cuda"
+        if torch.cuda.is_available()
         else "cpu"
     )
 
@@ -437,56 +737,125 @@ def main():
     print("SINET-V2 COD10K FINE-TUNING")
     print("=" * 70)
 
-    print("Device:", device)
+    print(
+        "Device:",
+        device
+    )
 
     if torch.cuda.is_available():
+
         print(
             "GPU:",
             torch.cuda.get_device_name(0)
         )
 
+        print(
+            "GPU Memory:",
+            round(
+                torch.cuda.get_device_properties(
+                    0
+                ).total_memory
+                /
+                (1024 ** 3),
+                2
+            ),
+            "GB"
+        )
+
     print()
+
+    # --------------------------------------------------------
+    # Check dataset
+    # --------------------------------------------------------
 
     print("Checking dataset...")
 
-    if not os.path.exists(TRAIN_IMAGE_DIR):
+    if not os.path.isdir(
+        TRAIN_IMAGE_DIR
+    ):
+
         raise FileNotFoundError(
             TRAIN_IMAGE_DIR
         )
 
-    if not os.path.exists(TRAIN_MASK_DIR):
+    if not os.path.isdir(
+        TRAIN_MASK_DIR
+    ):
+
         raise FileNotFoundError(
             TRAIN_MASK_DIR
         )
 
-    image_count = len(os.listdir(TRAIN_IMAGE_DIR))
-    mask_count = len(os.listdir(TRAIN_MASK_DIR))
+    image_count = len(
+        [
+            f
+            for f in os.listdir(
+                TRAIN_IMAGE_DIR
+            )
+            if f.lower().endswith(
+                (".jpg", ".jpeg", ".png")
+            )
+        ]
+    )
 
-    print("Training images:", image_count)
-    print("Training masks :", mask_count)
+    mask_count = len(
+        [
+            f
+            for f in os.listdir(
+                TRAIN_MASK_DIR
+            )
+            if f.lower().endswith(
+                (".jpg", ".jpeg", ".png")
+            )
+        ]
+    )
+
+    print(
+        "Training images:",
+        image_count
+    )
+
+    print(
+        "Training masks :",
+        mask_count
+    )
 
     if image_count != 6000:
+
         raise RuntimeError(
-            f"Expected 6000 training images, found {image_count}"
+            f"Expected 6000 images, found {image_count}"
         )
 
     if mask_count != 6000:
+
         raise RuntimeError(
-            f"Expected 6000 training masks, found {mask_count}"
+            f"Expected 6000 masks, found {mask_count}"
         )
 
     print()
 
-    print("Checking pretrained weights...")
+    # --------------------------------------------------------
+    # Check weights
+    # --------------------------------------------------------
 
-    if not os.path.exists(PRETRAINED_SINET):
+    print(
+        "Checking pretrained weights..."
+    )
+
+    if not os.path.isfile(
+        PRETRAINED_SINET
+    ):
+
         raise FileNotFoundError(
             PRETRAINED_SINET
         )
 
-    if RES2NET_CHECKPOINT is None:
+    if not os.path.isfile(
+        RES2NET_CHECKPOINT
+    ):
+
         raise FileNotFoundError(
-            "Res2Net checkpoint not found."
+            RES2NET_CHECKPOINT
         )
 
     print(
@@ -501,31 +870,53 @@ def main():
 
     print()
 
-    print("Creating dataset...")
+    # --------------------------------------------------------
+    # Dataset
+    # --------------------------------------------------------
 
-    full_dataset = COD10KSegmentationDataset(
+    print(
+        "Creating dataset..."
+    )
+
+    base_dataset = COD10KSegmentationDataset(
         TRAIN_IMAGE_DIR,
         TRAIN_MASK_DIR
     )
 
-    total = len(full_dataset)
+    total = len(
+        base_dataset
+    )
 
     val_size = int(
         total * VAL_RATIO
     )
 
-    train_size = total - val_size
+    train_size = (
+        total
+        -
+        val_size
+    )
 
-    generator = torch.Generator().manual_seed(SEED)
+    generator = torch.Generator().manual_seed(
+        SEED
+    )
 
-    train_indices, val_indices = random_split(
+    train_subset, val_subset = random_split(
         range(total),
-        [train_size, val_size],
+        [
+            train_size,
+            val_size
+        ],
         generator=generator
     )
 
-    train_indices = train_indices.indices
-    val_indices = val_indices.indices
+    train_indices = (
+        train_subset.indices
+    )
+
+    val_indices = (
+        val_subset.indices
+    )
 
     train_dataset = COD10KSegmentationDataset(
         TRAIN_IMAGE_DIR,
@@ -541,11 +932,26 @@ def main():
         augment=False
     )
 
-    print("Total:", total)
-    print("Training:", len(train_dataset))
-    print("Validation:", len(val_dataset))
+    print(
+        "Total:",
+        total
+    )
+
+    print(
+        "Training:",
+        len(train_dataset)
+    )
+
+    print(
+        "Validation:",
+        len(val_dataset)
+    )
 
     print()
+
+    # --------------------------------------------------------
+    # Data loaders
+    # --------------------------------------------------------
 
     train_loader = DataLoader(
         train_dataset,
@@ -564,7 +970,13 @@ def main():
         pin_memory=torch.cuda.is_available()
     )
 
-    print("Loading SINet-V2...")
+    # --------------------------------------------------------
+    # Model
+    # --------------------------------------------------------
+
+    print(
+        "Loading SINet-V2..."
+    )
 
     model = Network(
         channel=32
@@ -575,32 +987,55 @@ def main():
         map_location="cpu"
     )
 
-    if isinstance(checkpoint, dict):
+    if isinstance(
+        checkpoint,
+        dict
+    ):
 
         if "state_dict" in checkpoint:
-            checkpoint = checkpoint["state_dict"]
+
+            checkpoint = checkpoint[
+                "state_dict"
+            ]
 
         elif "model_state_dict" in checkpoint:
-            checkpoint = checkpoint["model_state_dict"]
+
+            checkpoint = checkpoint[
+                "model_state_dict"
+            ]
 
     cleaned_checkpoint = {}
 
     for key, value in checkpoint.items():
 
-        if key.startswith("module."):
+        if key.startswith(
+            "module."
+        ):
+
             key = key[7:]
 
-        cleaned_checkpoint[key] = value
+        cleaned_checkpoint[
+            key
+        ] = value
 
     model.load_state_dict(
         cleaned_checkpoint,
         strict=True
     )
 
-    model = model.to(device)
+    model = model.to(
+        device
+    )
 
-    print("SINet-V2 loaded successfully.")
+    print(
+        "SINet-V2 loaded successfully."
+    )
+
     print()
+
+    # --------------------------------------------------------
+    # Optimizer
+    # --------------------------------------------------------
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -613,13 +1048,22 @@ def main():
         T_max=EPOCHS
     )
 
-    best_val_loss = float("inf")
+    best_val_loss = float(
+        "inf"
+    )
+
+    # --------------------------------------------------------
+    # Training
+    # --------------------------------------------------------
 
     print("=" * 70)
     print("STARTING TRAINING")
     print("=" * 70)
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(
+        1,
+        EPOCHS + 1
+    ):
 
         model.train()
 
@@ -646,7 +1090,9 @@ def main():
                 set_to_none=True
             )
 
-            outputs = model(images)
+            outputs = model(
+                images
+            )
 
             loss = calculate_loss(
                 outputs,
@@ -682,7 +1128,12 @@ def main():
 
         scheduler.step()
 
+        current_lr = (
+            scheduler.get_last_lr()[0]
+        )
+
         print()
+
         print(
             f"Epoch {epoch}/{EPOCHS}"
         )
@@ -696,7 +1147,7 @@ def main():
         )
 
         print(
-            f"Learning Rate: {scheduler.get_last_lr()[0]:.8f}"
+            f"Learning Rate: {current_lr:.8f}"
         )
 
         if val_loss < best_val_loss:
@@ -720,9 +1171,12 @@ def main():
                 BEST_MODEL
             )
 
-        print("-" * 70)
+        print(
+            "-" * 70
+        )
 
     print()
+
     print("=" * 70)
     print("TRAINING COMPLETE")
     print("=" * 70)
@@ -733,7 +1187,10 @@ def main():
     )
 
     print(
-        "Best model:",
+        "Best model:"
+    )
+
+    print(
         BEST_MODEL
     )
 

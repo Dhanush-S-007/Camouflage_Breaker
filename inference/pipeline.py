@@ -1,5 +1,6 @@
 # ============================================================
-# Camouflage Breaker - Complete Inference Pipeline
+# CAMOUFLAGE BREAKER - FINAL INFERENCE PIPELINE
+# SINet-V2 + ResNet50
 # ============================================================
 
 import os
@@ -14,9 +15,9 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 
 
-# ------------------------------------------------------------
-# Project root
-# ------------------------------------------------------------
+# ============================================================
+# PROJECT ROOT
+# ============================================================
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(
@@ -26,8 +27,26 @@ PROJECT_ROOT = os.path.dirname(
 
 sys.path.insert(0, PROJECT_ROOT)
 
-from models.resunet import ResUNet
 
+# ============================================================
+# SINET-V2 IMPORT
+# ============================================================
+
+SINET_SOURCE = os.path.join(
+    PROJECT_ROOT,
+    "models",
+    "sinetv2",
+    "source"
+)
+
+sys.path.insert(0, SINET_SOURCE)
+
+from lib.Network_Res2Net_GRA_NCD import Network
+
+
+# ============================================================
+# RESNET50 CLASSIFIER
+# ============================================================
 
 class ResNet50Classifier(nn.Module):
 
@@ -65,6 +84,10 @@ class ResNet50Classifier(nn.Module):
         return self.backbone(x)
 
 
+# ============================================================
+# CAMOUFLAGE BREAKER PIPELINE
+# ============================================================
+
 class CamouflageBreakerPipeline:
 
     def __init__(
@@ -75,7 +98,7 @@ class CamouflageBreakerPipeline:
     ):
 
         # ----------------------------------------------------
-        # Default paths
+        # MODEL PATHS
         # ----------------------------------------------------
 
         if seg_model_path is None:
@@ -83,7 +106,8 @@ class CamouflageBreakerPipeline:
             seg_model_path = os.path.join(
                 PROJECT_ROOT,
                 "saved_models",
-                "resunet_best.pth"
+                "sinetv2",
+                "sinetv2_cod10k_40epoch_best.pth"
             )
 
         if classifier_model_path is None:
@@ -103,7 +127,7 @@ class CamouflageBreakerPipeline:
             )
 
         # ----------------------------------------------------
-        # Device
+        # DEVICE
         # ----------------------------------------------------
 
         self.device = torch.device(
@@ -121,11 +145,11 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Load ResUNet
+        # LOAD SINET-V2
         # ----------------------------------------------------
 
         print(
-            "\nLoading ResUNet segmentation model..."
+            "\nLoading SINet-V2 segmentation model..."
         )
 
         if not os.path.exists(
@@ -133,100 +157,18 @@ class CamouflageBreakerPipeline:
         ):
 
             raise FileNotFoundError(
-                f"ResUNet model not found:\n"
+                f"SINet-V2 model not found:\n"
                 f"{seg_model_path}"
             )
 
-        self.seg_model = ResUNet(
-            encoder_name="resnet50",
-            encoder_weights=None
+        self.seg_model = Network(
+            channel=32
         )
 
-        seg_checkpoint = torch.load(
+        checkpoint = torch.load(
             seg_model_path,
             map_location=self.device
         )
-
-        if (
-            isinstance(seg_checkpoint, dict)
-            and
-            "model_state_dict" in seg_checkpoint
-        ):
-
-            self.seg_model.load_state_dict(
-                seg_checkpoint[
-                    "model_state_dict"
-                ]
-            )
-
-        else:
-
-            self.seg_model.load_state_dict(
-                seg_checkpoint
-            )
-
-        self.seg_model.to(
-            self.device
-        )
-
-        self.seg_model.eval()
-
-        print(
-            "✓ ResUNet loaded"
-        )
-
-        # ----------------------------------------------------
-        # Load Classifier Checkpoint
-        # ----------------------------------------------------
-
-        print(
-            "\nLoading trained ResNet50 classifier..."
-        )
-
-        if not os.path.exists(
-            classifier_model_path
-        ):
-
-            raise FileNotFoundError(
-                f"Classifier model not found:\n"
-                f"{classifier_model_path}"
-            )
-
-        checkpoint = torch.load(
-            classifier_model_path,
-            map_location=self.device
-        )
-
-        # ----------------------------------------------------
-        # Read number of classes
-        # ----------------------------------------------------
-
-        if (
-            isinstance(checkpoint, dict)
-            and
-            "num_classes" in checkpoint
-        ):
-
-            self.num_classes = int(
-                checkpoint["num_classes"]
-            )
-
-        else:
-
-            self.num_classes = 69
-
-        # ----------------------------------------------------
-        # Create EXACT same classifier architecture
-        # used during Colab training
-        # ----------------------------------------------------
-
-        self.classifier = ResNet50Classifier(
-            num_classes=self.num_classes
-        )
-
-        # ----------------------------------------------------
-        # Load state dictionary
-        # ----------------------------------------------------
 
         if (
             isinstance(checkpoint, dict)
@@ -242,8 +184,91 @@ class CamouflageBreakerPipeline:
 
             state_dict = checkpoint
 
+        self.seg_model.load_state_dict(
+            state_dict,
+            strict=True
+        )
+
+        self.seg_model.to(
+            self.device
+        )
+
+        self.seg_model.eval()
+
+        print(
+            "✓ SINet-V2 loaded"
+        )
+
+        # ----------------------------------------------------
+        # LOAD CLASSIFIER
+        # ----------------------------------------------------
+
+        print(
+            "\nLoading trained ResNet50 classifier..."
+        )
+
+        if not os.path.exists(
+            classifier_model_path
+        ):
+
+            raise FileNotFoundError(
+                f"Classifier model not found:\n"
+                f"{classifier_model_path}"
+            )
+
+        classifier_checkpoint = torch.load(
+            classifier_model_path,
+            map_location=self.device
+        )
+
+        if (
+            isinstance(
+                classifier_checkpoint,
+                dict
+            )
+            and
+            "num_classes"
+            in classifier_checkpoint
+        ):
+
+            self.num_classes = int(
+                classifier_checkpoint[
+                    "num_classes"
+                ]
+            )
+
+        else:
+
+            self.num_classes = 69
+
+        self.classifier = ResNet50Classifier(
+            num_classes=self.num_classes
+        )
+
+        if (
+            isinstance(
+                classifier_checkpoint,
+                dict
+            )
+            and
+            "model_state_dict"
+            in classifier_checkpoint
+        ):
+
+            classifier_state = (
+                classifier_checkpoint[
+                    "model_state_dict"
+                ]
+            )
+
+        else:
+
+            classifier_state = (
+                classifier_checkpoint
+            )
+
         self.classifier.load_state_dict(
-            state_dict
+            classifier_state
         )
 
         self.classifier.to(
@@ -258,7 +283,7 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Load class mapping
+        # CLASS MAPPING
         # ----------------------------------------------------
 
         print(
@@ -296,7 +321,7 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Classification preprocessing
+        # CLASSIFIER TRANSFORM
         # ----------------------------------------------------
 
         self.cls_transform = transforms.Compose([
@@ -315,7 +340,6 @@ class CamouflageBreakerPipeline:
                     0.456,
                     0.406
                 ],
-
                 std=[
                     0.229,
                     0.224,
@@ -331,7 +355,7 @@ class CamouflageBreakerPipeline:
         print("=" * 70)
 
     # ========================================================
-    # PREPROCESS IMAGE FOR RESUNET
+    # PREPROCESS FOR SINET-V2
     # ========================================================
 
     def preprocess_image(
@@ -366,7 +390,11 @@ class CamouflageBreakerPipeline:
         )
 
         mean = torch.tensor(
-            [0.485, 0.456, 0.406],
+            [
+                0.485,
+                0.456,
+                0.406
+            ],
             dtype=torch.float32
         ).view(
             3,
@@ -375,7 +403,11 @@ class CamouflageBreakerPipeline:
         )
 
         std = torch.tensor(
-            [0.229, 0.224, 0.225],
+            [
+                0.229,
+                0.224,
+                0.225
+            ],
             dtype=torch.float32
         ).view(
             3,
@@ -387,8 +419,8 @@ class CamouflageBreakerPipeline:
             image_tensor - mean
         ) / std
 
-        image_tensor = image_tensor.unsqueeze(
-            0
+        image_tensor = (
+            image_tensor.unsqueeze(0)
         )
 
         return image_tensor.to(
@@ -396,7 +428,7 @@ class CamouflageBreakerPipeline:
         )
 
     # ========================================================
-    # SEGMENTATION
+    # SINET-V2 SEGMENTATION
     # ========================================================
 
     def get_mask(
@@ -407,28 +439,43 @@ class CamouflageBreakerPipeline:
 
         with torch.no_grad():
 
-            output = self.seg_model(
+            outputs = self.seg_model(
                 image_tensor
             )
 
+            # IMPORTANT:
+            # SINet-V2 returns multiple outputs.
+            # The final prediction is outputs[-1].
+
+            if isinstance(
+                outputs,
+                (tuple, list)
+            ):
+
+                prediction = outputs[-1]
+
+            else:
+
+                prediction = outputs
+
             probability = torch.sigmoid(
-                output
+                prediction
             )
 
-            mask = (
-                probability
-                .squeeze()
+            probability = (
+                probability.squeeze()
+                .detach()
                 .cpu()
                 .numpy()
             )
 
         binary_mask = (
-            mask >= threshold
+            probability >= threshold
         ).astype(
             np.uint8
         )
 
-        return binary_mask
+        return binary_mask, probability
 
     # ========================================================
     # RESIZE MASK
@@ -450,17 +497,221 @@ class CamouflageBreakerPipeline:
         )
 
     # ========================================================
-    # BOUNDARY
+    # OBJECT GATE
+    # ========================================================
+
+    def calculate_object_gate(
+        self,
+        mask,
+        probability
+    ):
+
+        height, width = mask.shape
+
+        total_pixels = (
+            height * width
+        )
+
+        object_pixels = np.sum(
+            mask > 0
+        )
+
+        area_ratio = (
+            object_pixels /
+            max(total_pixels, 1)
+        )
+
+        # ----------------------------------------------------
+        # Largest connected component
+        # ----------------------------------------------------
+
+        num_labels, labels, stats, _ = (
+            cv2.connectedComponentsWithStats(
+                mask,
+                connectivity=8
+            )
+        )
+
+        largest_component_ratio = 0.0
+
+        if num_labels > 1:
+
+            component_areas = (
+                stats[1:, cv2.CC_STAT_AREA]
+            )
+
+            largest_area = (
+                np.max(component_areas)
+            )
+
+            largest_component_ratio = (
+                largest_area /
+                max(total_pixels, 1)
+            )
+
+        # ----------------------------------------------------
+        # Probability statistics
+        # ----------------------------------------------------
+
+        if object_pixels > 0:
+
+            object_probability = (
+                probability[mask > 0]
+            )
+
+            mean_probability = float(
+                np.mean(
+                    object_probability
+                )
+            )
+
+            max_probability = float(
+                np.max(
+                    object_probability
+                )
+            )
+
+        else:
+
+            mean_probability = 0.0
+            max_probability = 0.0
+
+        # ----------------------------------------------------
+        # Detection decision
+        # ----------------------------------------------------
+
+        object_detected = (
+
+            area_ratio >= 0.002
+
+            and
+
+            largest_component_ratio >= 0.001
+
+            and
+
+            mean_probability >= 0.60
+
+            and
+
+            max_probability >= 0.70
+        )
+
+        return {
+
+            "area_ratio":
+                float(area_ratio),
+
+            "largest_component_ratio":
+                float(
+                    largest_component_ratio
+                ),
+
+            "mean_probability":
+                float(
+                    mean_probability
+                ),
+
+            "max_probability":
+                float(
+                    max_probability
+                ),
+
+            "object_detected":
+                bool(
+                    object_detected
+                )
+        }
+
+    # ========================================================
+    # ROYAL ORANGE + RED BOUNDARY
     # ========================================================
 
     def draw_boundary(
         self,
         image,
         mask,
-        thickness=3
+        thickness=4
     ):
 
         result = image.copy()
+
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        for contour in contours:
+
+            area = cv2.contourArea(
+                contour
+            )
+
+            if area > 20:
+
+                # BGR
+                # Bright orange-red
+
+                cv2.drawContours(
+                    result,
+                    [contour],
+                    -1,
+                    (0, 70, 255),
+                    thickness,
+                    cv2.LINE_AA
+                )
+
+        return result
+
+    # ========================================================
+    # ORANGE + RED OVERLAY
+    # ========================================================
+
+    def create_overlay(
+        self,
+        image,
+        mask,
+        alpha=0.42
+    ):
+
+        result = image.copy()
+
+        # ----------------------------------------------------
+        # Create soft orange-red mask
+        # ----------------------------------------------------
+
+        colored_mask = np.zeros_like(
+            image
+        )
+
+        # Main color:
+        # BGR = (0, 105, 255)
+        # This is strong orange.
+
+        colored_mask[
+            mask > 0
+        ] = (
+            0,
+            105,
+            255
+        )
+
+        # ----------------------------------------------------
+        # Orange overlay
+        # ----------------------------------------------------
+
+        result = cv2.addWeighted(
+            image,
+            1.0 - alpha,
+            colored_mask,
+            alpha,
+            0
+        )
+
+        # ----------------------------------------------------
+        # Add red-orange edge
+        # ----------------------------------------------------
 
         contours, _ = cv2.findContours(
             mask,
@@ -478,42 +729,135 @@ class CamouflageBreakerPipeline:
                     result,
                     [contour],
                     -1,
-                    (0, 0, 255),
-                    thickness
+                    (0, 45, 255),
+                    3,
+                    cv2.LINE_AA
                 )
 
         return result
 
     # ========================================================
-    # COLORED OVERLAY
+    # CREATE SOFT GRADIENT OVERLAY
     # ========================================================
 
-    def create_overlay(
+    def create_heat_overlay(
         self,
         image,
         mask,
-        alpha=0.35
+        probability
     ):
 
-        colored_mask = np.zeros_like(
+        result = image.copy()
+
+        # Normalize probability
+
+        probability_normalized = np.clip(
+            probability,
+            0.0,
+            1.0
+        )
+
+        # Convert probability to original size
+
+        probability_resized = cv2.resize(
+            probability_normalized,
+            (
+                image.shape[1],
+                image.shape[0]
+            ),
+            interpolation=cv2.INTER_LINEAR
+        )
+
+        # ----------------------------------------------------
+        # Orange → Red intensity
+        # ----------------------------------------------------
+
+        heat = np.zeros_like(
+            image,
+            dtype=np.uint8
+        )
+
+        # Blue channel
+
+        heat[:, :, 0] = 0
+
+        # Green decreases as probability rises
+
+        heat[:, :, 1] = (
+            140 *
+            (
+                1.0 -
+                probability_resized
+            )
+        ).astype(
+            np.uint8
+        )
+
+        # Red increases with probability
+
+        heat[:, :, 2] = (
+            120 +
+            135 *
+            probability_resized
+        ).clip(
+            0,
+            255
+        ).astype(
+            np.uint8
+        )
+
+        # Only show heat inside mask
+
+        mask_bool = (
+            mask > 0
+        )
+
+        heat_only = np.zeros_like(
             image
         )
 
-        colored_mask[
-            mask > 0
-        ] = (
-            0,
-            0,
-            255
-        )
+        heat_only[
+            mask_bool
+        ] = heat[
+            mask_bool
+        ]
+
+        # ----------------------------------------------------
+        # Blend
+        # ----------------------------------------------------
 
         result = cv2.addWeighted(
             image,
-            1 - alpha,
-            colored_mask,
-            alpha,
+            0.58,
+            heat_only,
+            0.42,
             0
         )
+
+        # ----------------------------------------------------
+        # Red-orange boundary
+        # ----------------------------------------------------
+
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        for contour in contours:
+
+            if cv2.contourArea(
+                contour
+            ) > 20:
+
+                cv2.drawContours(
+                    result,
+                    [contour],
+                    -1,
+                    (0, 45, 255),
+                    3,
+                    cv2.LINE_AA
+                )
 
         return result
 
@@ -603,10 +947,10 @@ class CamouflageBreakerPipeline:
             crop_rgb
         )
 
-        image_tensor = image_tensor.unsqueeze(
-            0
-        ).to(
-            self.device
+        image_tensor = (
+            image_tensor
+            .unsqueeze(0)
+            .to(self.device)
         )
 
         with torch.no_grad():
@@ -615,9 +959,11 @@ class CamouflageBreakerPipeline:
                 image_tensor
             )
 
-            probabilities = torch.softmax(
-                outputs,
-                dim=1
+            probabilities = (
+                torch.softmax(
+                    outputs,
+                    dim=1
+                )
             )
 
             confidence, predicted_index = (
@@ -635,9 +981,11 @@ class CamouflageBreakerPipeline:
             confidence.item() * 100
         )
 
-        class_name = self.idx_to_class.get(
-            str(predicted_index),
-            f"Class_{predicted_index + 1}"
+        class_name = (
+            self.idx_to_class.get(
+                str(predicted_index),
+                f"Class_{predicted_index + 1}"
+            )
         )
 
         return (
@@ -678,24 +1026,48 @@ class CamouflageBreakerPipeline:
                     f"{image_path}"
                 )
 
+        if image is None:
+
+            raise ValueError(
+                "Input image is None"
+            )
+
         # ----------------------------------------------------
-        # Original
+        # Ensure BGR uint8
         # ----------------------------------------------------
+
+        if image.dtype != np.uint8:
+
+            image = np.clip(
+                image,
+                0,
+                255
+            ).astype(
+                np.uint8
+            )
 
         original = image.copy()
 
         # ----------------------------------------------------
-        # ResUNet
+        # SINET-V2
         # ----------------------------------------------------
 
-        image_tensor = self.preprocess_image(
-            image
+        image_tensor = (
+            self.preprocess_image(
+                image
+            )
         )
 
-        mask_small = self.get_mask(
-            image_tensor,
-            threshold=threshold
+        mask_small, probability_small = (
+            self.get_mask(
+                image_tensor,
+                threshold
+            )
         )
+
+        # ----------------------------------------------------
+        # Resize mask
+        # ----------------------------------------------------
 
         mask = self.resize_mask(
             mask_small,
@@ -703,14 +1075,54 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Check detection
+        # Resize probability
         # ----------------------------------------------------
 
-        object_pixels = np.sum(
-            mask > 0
+        probability = cv2.resize(
+            probability_small,
+            (
+                image.shape[1],
+                image.shape[0]
+            ),
+            interpolation=cv2.INTER_LINEAR
         )
 
-        if object_pixels == 0:
+        # ----------------------------------------------------
+        # OBJECT GATE
+        # ----------------------------------------------------
+
+        gate = self.calculate_object_gate(
+            mask,
+            probability
+        )
+
+        print("\nObject gate:")
+        print(
+            f"Area ratio       : "
+            f"{gate['area_ratio']:.4f}"
+        )
+        print(
+            f"Largest component: "
+            f"{gate['largest_component_ratio']:.4f}"
+        )
+        print(
+            f"Mean probability : "
+            f"{gate['mean_probability']:.4f}"
+        )
+        print(
+            f"Max probability  : "
+            f"{gate['max_probability']:.4f}"
+        )
+        print(
+            f"Detected         : "
+            f"{gate['object_detected']}"
+        )
+
+        # ----------------------------------------------------
+        # NO OBJECT
+        # ----------------------------------------------------
+
+        if not gate["object_detected"]:
 
             return {
 
@@ -739,11 +1151,14 @@ class CamouflageBreakerPipeline:
                     None,
 
                 "object_detected":
-                    False
+                    False,
+
+                "gate":
+                    gate
             }
 
         # ----------------------------------------------------
-        # Boundary
+        # BOUNDARY
         # ----------------------------------------------------
 
         boundary = self.draw_boundary(
@@ -752,7 +1167,7 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Overlay
+        # ORANGE-RED OVERLAY
         # ----------------------------------------------------
 
         overlay = self.create_overlay(
@@ -761,7 +1176,7 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # Crop
+        # CROP
         # ----------------------------------------------------
 
         crop = self.crop_object(
@@ -770,7 +1185,7 @@ class CamouflageBreakerPipeline:
         )
 
         # ----------------------------------------------------
-        # ResNet50
+        # CLASSIFY
         # ----------------------------------------------------
 
         (
@@ -780,6 +1195,20 @@ class CamouflageBreakerPipeline:
         ) = self.classify_object(
             crop
         )
+
+        print(
+            f"Prediction       : "
+            f"{class_name}"
+        )
+
+        print(
+            f"Confidence       : "
+            f"{confidence:.2f}%"
+        )
+
+        # ----------------------------------------------------
+        # RETURN
+        # ----------------------------------------------------
 
         return {
 
@@ -808,12 +1237,15 @@ class CamouflageBreakerPipeline:
                 predicted_index,
 
             "object_detected":
-                True
+                True,
+
+            "gate":
+                gate
         }
 
 
 # ============================================================
-# TEST
+# TEST PIPELINE
 # ============================================================
 
 if __name__ == "__main__":
@@ -872,7 +1304,9 @@ if __name__ == "__main__":
         sys.exit()
 
     print(
-        f"\nFound {len(test_images)} test images."
+        f"\nFound "
+        f"{len(test_images)} "
+        f"test images."
     )
 
     print(
@@ -881,7 +1315,8 @@ if __name__ == "__main__":
 
     output_dir = os.path.join(
         PROJECT_ROOT,
-        "outputs"
+        "outputs",
+        "pipeline_test"
     )
 
     os.makedirs(
@@ -922,9 +1357,27 @@ if __name__ == "__main__":
                 f"{result['confidence']:.2f}%"
             )
 
-            base_name = os.path.splitext(
-                filename
-            )[0]
+            base_name = (
+                os.path.splitext(
+                    filename
+                )[0]
+            )
+
+            cv2.imwrite(
+                os.path.join(
+                    output_dir,
+                    f"{base_name}_original.jpg"
+                ),
+                result["original"]
+            )
+
+            cv2.imwrite(
+                os.path.join(
+                    output_dir,
+                    f"{base_name}_mask.png"
+                ),
+                result["mask"] * 255
+            )
 
             cv2.imwrite(
                 os.path.join(
@@ -962,11 +1415,33 @@ if __name__ == "__main__":
                 f"❌ Error: {e}"
             )
 
-    print("\n" + "=" * 70)
-    print("PIPELINE TEST COMPLETE")
-    print("=" * 70)
+    print(
+        "\n" + "=" * 70
+    )
+
+    print(
+        "PIPELINE TEST COMPLETE"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         f"Results folder:\n"
         f"{output_dir}"
     )
+# ============================================================
+# API PREDICTION FUNCTION
+# Used by ai_service/main.py
+# ============================================================
+
+_pipeline = CamouflageBreakerPipeline()
+
+
+def predict(image):
+    """
+    Main prediction function used by FastAPI.
+    """
+
+    return _pipeline.predict(image)

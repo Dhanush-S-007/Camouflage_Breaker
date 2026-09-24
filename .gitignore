@@ -1,12 +1,33 @@
-﻿venv/
+﻿# Python
 __pycache__/
-*.pyc
-dataset/
-crops/
-saved_models/
-outputs/
-*.zip
-*.pth
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
 .env
-.DS_Store
+
+# Dataset
+dataset/
+*.zip
+
+# Generated outputs
+outputs/
+backend/target/
+
+# Python model checkpoints
+*.pth
+*.pt
+*.ckpt
+
+# Temporary files
+*.tmp
 *.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

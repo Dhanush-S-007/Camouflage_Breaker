@@ -1,424 +1,1046 @@
-# app.py - WORKING VERSION WITH FILENAME EXTRACTION
 import streamlit as st
-import cv2
 import numpy as np
 from PIL import Image
-import time
-import os
-import re
-from io import BytesIO
-import pandas as pd
-from inference.pipeline import CamouflageBreakerPipeline
+import io
+import sys
+from pathlib import Path
+import cv2
 
-# ==================== PAGE CONFIG ====================
+
+# ============================================================
+# PROJECT SETUP
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from inference.pipeline import predict
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
 st.set_page_config(
-    page_title="Camouflage Breaker Pro",
-    page_icon="🐾",
+    page_title="Camouflage Breaker",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ==================== CUSTOM CSS ====================
-st.markdown("""
-<style>
-    @keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-    
-    @keyframes float {
-        0% { transform: translateY(0px); }
-        50% { transform: translateY(-10px); }
-        100% { transform: translateY(0px); }
-    }
-    
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateY(30px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .main-title {
-        font-size: 4rem;
-        font-weight: 900;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-        background-size: 200% 200%;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        animation: gradient 3s ease infinite;
-        padding: 1rem 0;
-    }
-    
-    .sub-title {
-        text-align: center;
-        color: #888;
-        font-size: 1.2rem;
-        margin-bottom: 2rem;
-    }
-    
-    .glass-card {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 1.5rem;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        transition: all 0.3s ease;
-        animation: slideIn 0.6s ease-out;
-    }
-    
-    .glass-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 48px rgba(102, 126, 234, 0.2);
-    }
-    
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        animation: slideIn 0.6s ease-out;
-    }
-    
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: 700;
-    }
-    
-    .metric-label {
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-    
-    .upload-zone {
-        border: 3px dashed #667eea;
-        border-radius: 20px;
-        padding: 3rem;
-        text-align: center;
-        background: rgba(102, 126, 234, 0.05);
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-    
-    .upload-zone:hover {
-        background: rgba(102, 126, 234, 0.1);
-        border-color: #764ba2;
-        transform: scale(1.02);
-    }
-    
-    .upload-icon {
-        font-size: 4rem;
-        animation: float 2s ease-in-out infinite;
-    }
-    
-    .result-container {
-        animation: slideIn 0.6s ease-out;
-    }
-    
-    .animal-name {
-        font-size: 3rem;
-        font-weight: 900;
-        text-align: center;
-        padding: 1rem;
-    }
-    
-    .animal-sub {
-        text-align: center;
-        color: #888;
-        font-size: 1.2rem;
-    }
-    
-    .footer {
-        text-align: center;
-        padding: 2rem;
-        color: #888;
-        font-size: 0.9rem;
-        border-top: 1px solid #eee;
-        margin-top: 2rem;
-    }
-</style>
-""", unsafe_allow_html=True)
 
-# ==================== HEADER ====================
-st.markdown('<div class="main-title">🐾 Camouflage Breaker Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Advanced AI Detection for Camouflaged Animals</div>', unsafe_allow_html=True)
+# ============================================================
+# STYLE
+# ============================================================
 
-# ==================== SIDEBAR ====================
-with st.sidebar:
-    st.markdown("### 🎯 About")
-    st.markdown("""
-    Camouflage Breaker uses deep learning to detect 
-    and identify animals hidden in their natural 
-    environment.
-    """)
-    
-    st.markdown("---")
-    st.markdown("### 🧠 Model Info")
-    st.markdown("""
-    - **Architecture:** ResUNet + ResNet50
-    - **Classes:** 69 Animal Species
-    - **Accuracy:** 85%+
-    - **Framework:** PyTorch
-    """)
-    
-    st.markdown("---")
-    st.markdown("### ⚙️ Settings")
-    
-    confidence_threshold = st.slider(
-        "Confidence Threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.5,
-        step=0.05
-    )
-    
-    show_mask = st.checkbox("Show Segmentation Mask", value=True)
-    show_boundary = st.checkbox("Show Boundary", value=True)
-    show_overlay = st.checkbox("Show Colored Overlay", value=True)
+st.markdown(
+    """
+    <style>
 
-# ==================== LOAD MODEL ====================
-@st.cache_resource
-def load_pipeline():
-    try:
-        pipeline = CamouflageBreakerPipeline(
-            seg_model_path='saved_models/resunet_best.pth',
-            cls_model_path='saved_models/classifier_best.pth',
-            class_mapping_path='saved_models/class_mapping.json'
-        )
-        return pipeline
-    except Exception as e:
-        st.error(f"❌ Error loading models: {e}")
+    /* =========================
+       GLOBAL
+       ========================= */
+
+    .stApp {
+        background:
+            radial-gradient(
+                circle at 80% 0%,
+                rgba(24, 185, 105, 0.08),
+                transparent 25%
+            ),
+            #06100c;
+    }
+
+    .main .block-container {
+        max-width: 1450px;
+        padding-top: 2.5rem;
+        padding-bottom: 4rem;
+    }
+
+    /* =========================
+       TEXT
+       ========================= */
+
+    p {
+        color: #a9b8b1 !important;
+        font-size: 15px !important;
+        line-height: 1.55 !important;
+    }
+
+    h1 {
+        color: #f7fbf9 !important;
+        font-size: 50px !important;
+        font-weight: 850 !important;
+        letter-spacing: -2px !important;
+        line-height: 1.05 !important;
+    }
+
+    h2 {
+        color: #f0f6f3 !important;
+        font-size: 28px !important;
+        font-weight: 800 !important;
+    }
+
+    h3 {
+        color: #e7f0ec !important;
+        font-size: 20px !important;
+        font-weight: 750 !important;
+    }
+
+    /* =========================
+       SIDEBAR
+       ========================= */
+
+    section[data-testid="stSidebar"] {
+        background: #040907;
+        border-right: 1px solid #17241f;
+    }
+
+    section[data-testid="stSidebar"] .block-container {
+        padding: 2rem 1.25rem;
+    }
+
+    section[data-testid="stSidebar"] h1 {
+        font-size: 27px !important;
+    }
+
+    section[data-testid="stSidebar"] p {
+        font-size: 13px !important;
+    }
+
+    /* =========================
+       DIVIDERS
+       ========================= */
+
+    hr {
+        border-color: #182820 !important;
+        margin: 1.4rem 0 !important;
+    }
+
+    /* =========================
+       FILE UPLOADER
+       ========================= */
+
+    [data-testid="stFileUploader"] {
+        background: #0a1510;
+        border: 1px dashed #33734f;
+        border-radius: 14px;
+        padding: 12px;
+    }
+
+    [data-testid="stFileUploader"]:hover {
+        border-color: #48dc8b;
+    }
+
+    /* =========================
+       BUTTON
+       ========================= */
+
+    .stButton > button {
+        min-height: 55px;
+        border-radius: 12px;
+        border: 1px solid #36dc80;
+        background: linear-gradient(
+            135deg,
+            #15b968,
+            #29d579
+        );
+        color: #021109;
+        font-size: 16px;
+        font-weight: 850;
+        box-shadow: 0 8px 25px rgba(25, 210, 115, 0.12);
+    }
+
+    .stButton > button:hover {
+        background: linear-gradient(
+            135deg,
+            #21ca72,
+            #39e48b
+        );
+        border-color: #70f5aa;
+    }
+
+    /* =========================
+       DOWNLOAD
+       ========================= */
+
+    .stDownloadButton > button {
+        min-height: 52px;
+        border-radius: 11px;
+        border: 1px solid #287b50;
+        background: #0b2117;
+        color: #52e596;
+        font-weight: 800;
+    }
+
+    .stDownloadButton > button:hover {
+        background: #102f20;
+        border-color: #42dc88;
+    }
+
+    /* =========================
+       METRICS
+       ========================= */
+
+    [data-testid="stMetric"] {
+        background: #0a1611;
+        border: 1px solid #1a3025;
+        border-radius: 13px;
+        padding: 15px;
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: #80948a !important;
+        font-size: 13px !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: #52e596 !important;
+        font-size: 26px !important;
+        font-weight: 850 !important;
+    }
+
+    /* =========================
+       IMAGE CONTAINERS
+       ========================= */
+
+    [data-testid="stImage"] {
+        background: #08120e;
+        border: 1px solid #1b3127;
+        border-radius: 13px;
+        padding: 5px;
+    }
+
+    [data-testid="stImage"] img {
+        border-radius: 9px;
+    }
+
+    /* =========================
+       EXPANDER
+       ========================= */
+
+    [data-testid="stExpander"] {
+        background: #09140f;
+        border: 1px solid #1a2e24;
+        border-radius: 13px;
+    }
+
+    /* =========================
+       HIDE STREAMLIT BRANDING
+       ========================= */
+
+    #MainMenu {
+        visibility: hidden;
+    }
+
+    footer {
+        visibility: hidden;
+    }
+
+    header {
+        background: transparent !important;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# IMAGE HELPERS
+# ============================================================
+
+def bgr_to_rgb(image):
+    """
+    Convert OpenCV BGR image to RGB for Streamlit.
+    """
+    if image is None:
         return None
 
-pipeline = load_pipeline()
+    image = np.asarray(image)
 
-if pipeline is None:
-    st.stop()
+    if image.ndim == 3 and image.shape[2] == 3:
+        return cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
 
-# ==================== FUNCTION TO EXTRACT ANIMAL NAME ====================
-def extract_animal_name(filename):
-    """Extract animal name from COD10K filename"""
-    parts = filename.split('-')
-    if len(parts) >= 6:
-        # Get animal name (parts[5])
-        animal_part = parts[5]
-        # Remove .jpg and trailing numbers
-        animal_name = re.sub(r'\d+\.jpg$', '', animal_part)
-        animal_name = re.sub(r'\d+$', '', animal_name)
-        return animal_name
-    return None
+    return image
 
-def extract_super_class(filename):
-    """Extract super class from COD10K filename"""
-    parts = filename.split('-')
-    if len(parts) >= 4:
-        return parts[3]  # Aquatic, Terrestrial, Flying, Amphibian
-    return "Unknown"
 
-# ==================== UPLOAD SECTION ====================
-st.markdown("### 📤 Upload Image")
+def prepare_display_image(
+    image,
+    max_width=560,
+    max_height=420
+):
+    """
+    Resize only for website display.
+    Original model output is not modified.
+    """
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.markdown("""
-    <div class="upload-zone">
-        <div class="upload-icon">📤</div>
-        <h3>Drag & Drop Your Image</h3>
-        <p style="color: #888;">or click to browse files</p>
-        <p style="color: #aaa; font-size: 0.8rem;">Supports JPG, JPEG, PNG</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader(
-        "Upload Image",
-        type=['jpg', 'jpeg', 'png'],
-        label_visibility="collapsed"
+    if image is None:
+        return None
+
+    image = np.asarray(image)
+
+    height, width = image.shape[:2]
+
+    scale = min(
+        max_width / width,
+        max_height / height,
+        1.0
     )
 
-# ==================== PROCESSING ====================
-if uploaded_file is not None:
-    # Read image
-    image = Image.open(uploaded_file)
-    image_np = np.array(image)
-    
-    # Get filename
-    filename = uploaded_file.name
-    
-    # Extract animal name from filename
-    animal_name = extract_animal_name(filename)
-    super_class = extract_super_class(filename)
-    
-    # If animal name is None, use "Unknown"
-    if animal_name is None:
-        animal_name = "Unknown Animal"
-        super_class = "Unknown"
-    
-    # Display original
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("### 📷 Original Image")
-        st.image(image, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Process with pipeline
-    with st.spinner("🔍 Analyzing image..."):
-        start_time = time.time()
-        result = pipeline.predict(image_np)
-        processing_time = time.time() - start_time
-    
-    # Display result
-    with col2:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("### 🔍 Detection Result")
-        
-        # Override class name with extracted animal name
-        result['class_name'] = animal_name
-        result['super_class'] = super_class
-        
-        # If confidence is 0, set to 85% for dataset images
-        if result['confidence'] == 0:
-            result['confidence'] = 85.0
-        
-        st.image(result['overlay'], use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ==================== ANIMAL NAME DISPLAY ====================
-    st.markdown("---")
-    
-    confidence_color = "#4CAF50" if result['confidence'] > 70 else "#FF9800" if result['confidence'] > 50 else "#f44336"
-    
-    st.markdown(f"""
-    <div class="result-container" style="text-align: center; padding: 2rem;">
-        <div class="animal-name" style="color: {confidence_color};">{result['class_name']}</div>
-        <div class="animal-sub">
-            Super Class: {result['super_class']} &nbsp;|&nbsp; 
-            Confidence: {result['confidence']:.1f}% &nbsp;|&nbsp;
-            ⏱️ {processing_time:.2f}s
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # ==================== METRICS ====================
-    st.markdown("---")
-    st.markdown("### 📊 Detection Metrics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{result['class_name']}</div>
-            <div class="metric-label">Predicted Species</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">
-            <div class="metric-value">{result['confidence']:.1f}%</div>
-            <div class="metric-label">Confidence</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);">
-            <div class="metric-value">{result['super_class']}</div>
-            <div class="metric-label">Super Class</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class="metric-card" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);">
-            <div class="metric-value">{processing_time:.2f}s</div>
-            <div class="metric-label">Processing Time</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ==================== DETAILED VIEWS ====================
-    st.markdown("---")
-    st.markdown("### 🔬 Detailed Analysis")
-    
-    cols = st.columns(3)
-    
-    if show_boundary:
-        with cols[0]:
-            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-            st.markdown("#### 🎯 Boundary Detection")
-            st.image(result['boundary'], use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    if show_mask:
-        with cols[1]:
-            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-            st.markdown("#### 🧩 Segmentation Mask")
-            st.image(result['mask'] * 255, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    if show_overlay:
-        with cols[2]:
-            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-            st.markdown("#### 🎨 Colored Overlay")
-            st.image(result['overlay'], use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ==================== CROPPED OBJECT ====================
-    if result['crop'] is not None:
-        st.markdown("---")
-        st.markdown("### ✂️ Cropped Object")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-            st.image(result['crop'], use_container_width=True, caption="Detected Animal Crop")
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ==================== DOWNLOAD ====================
-    st.markdown("---")
-    st.markdown("### 💾 Download Results")
-    
-    def get_image_download(img):
-        if img is None:
-            return None
-        if img.dtype != np.uint8:
-            img = (img * 255).astype(np.uint8)
-        if len(img.shape) == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        elif img.shape[2] == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(img)
-        buf = BytesIO()
-        pil_img.save(buf, format="JPEG")
-        return buf.getvalue()
-    
-    cols = st.columns(4)
-    download_options = [
-        ("📥 Boundary", result['boundary']),
-        ("📥 Overlay", result['overlay']),
-        ("📥 Mask", result['mask'] * 255 if result['mask'] is not None else None),
-        ("📥 Crop", result['crop'])
-    ]
-    
-    for idx, (label, img) in enumerate(download_options):
-        with cols[idx]:
-            if img is not None:
-                img_data = get_image_download(img)
-                if img_data:
-                    st.download_button(
-                        label=label,
-                        data=img_data,
-                        file_name=f"{label.split(' ')[1].lower()}.jpg",
-                        mime="image/jpeg",
-                        use_container_width=True
+    if scale < 1.0:
+
+        new_width = int(
+            width * scale
+        )
+
+        new_height = int(
+            height * scale
+        )
+
+        image = cv2.resize(
+            image,
+            (
+                new_width,
+                new_height
+            ),
+            interpolation=cv2.INTER_AREA
+        )
+
+    return image
+
+
+def display_image(
+    image,
+    max_width=560,
+    max_height=420,
+    caption=None
+):
+    """
+    Correct color + controlled display size.
+    """
+
+    rgb = bgr_to_rgb(
+        image
+    )
+
+    rgb = prepare_display_image(
+        rgb,
+        max_width=max_width,
+        max_height=max_height
+    )
+
+    st.image(
+        rgb,
+        caption=caption,
+        use_container_width=False
+    )
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+with st.sidebar:
+
+    st.title("🎯 Camouflage")
+    st.title("Breaker")
+
+    st.caption(
+        "AI-powered camouflaged object detection"
+    )
+
+    st.divider()
+
+    st.subheader("SYSTEM")
+
+    st.success(
+        "● SYSTEM READY"
+    )
+
+    st.divider()
+
+    st.subheader("AI MODELS")
+
+    st.write("**SINet-V2**")
+
+    st.caption(
+        "Camouflaged object segmentation"
+    )
+
+    st.write("**ResNet50**")
+
+    st.caption(
+        "Object classification · 69 classes"
+    )
+
+    st.divider()
+
+    st.subheader("MODEL PERFORMANCE")
+
+    st.metric(
+        "Mean IoU",
+        "71.91%"
+    )
+
+    st.metric(
+        "Mean Dice",
+        "76.57%"
+    )
+
+    st.divider()
+
+    st.subheader("DETECTION FLOW")
+
+    st.write(
+        "📤 Upload\n\n"
+        "🎯 Locate\n\n"
+        "🟢 Highlight\n\n"
+        "✂️ Isolate\n\n"
+        "🧠 Identify"
+    )
+
+    st.divider()
+
+    st.caption(
+        "COD10K · Deep Learning · Computer Vision"
+    )
+
+
+# ============================================================
+# HERO
+# ============================================================
+
+st.caption(
+    "● AI COMPUTER VISION SYSTEM"
+)
+
+st.title(
+    "See what is hidden."
+)
+
+st.write(
+    "Find camouflaged objects, reveal their boundaries, "
+    "isolate them from the scene, and identify what is hidden."
+)
+
+st.divider()
+
+
+# ============================================================
+# UPLOAD
+# ============================================================
+
+st.subheader(
+    "Upload an image"
+)
+
+st.caption(
+    "JPG · JPEG · PNG"
+)
+
+uploaded_file = st.file_uploader(
+    "Choose image",
+    type=[
+        "jpg",
+        "jpeg",
+        "png"
+    ],
+    label_visibility="collapsed"
+)
+
+
+# ============================================================
+# EMPTY STATE
+# ============================================================
+
+if uploaded_file is None:
+
+    st.divider()
+
+    st.subheader(
+        "How Camouflage Breaker works"
+    )
+
+    st.caption(
+        "A complete AI pipeline designed specifically for hidden objects."
+    )
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.metric(
+            "01",
+            "UPLOAD"
+        )
+
+    with c2:
+        st.metric(
+            "02",
+            "LOCATE"
+        )
+
+    with c3:
+        st.metric(
+            "03",
+            "SEGMENT"
+        )
+
+    with c4:
+        st.metric(
+            "04",
+            "IDENTIFY"
+        )
+
+    with c5:
+        st.metric(
+            "05",
+            "EXPORT"
+        )
+
+    st.divider()
+
+    st.subheader(
+        "Two AI models. One objective."
+    )
+
+    a, b = st.columns(2)
+
+    with a:
+
+        st.info(
+            "**SINet-V2 — WHERE?**\n\n"
+            "Finds the pixels belonging to the camouflaged "
+            "object and creates its segmentation mask."
+        )
+
+    with b:
+
+        st.info(
+            "**ResNet50 — WHAT?**\n\n"
+            "Analyzes the isolated object and predicts "
+            "its category from 69 trained classes."
+        )
+
+
+# ============================================================
+# IMAGE UPLOADED
+# ============================================================
+
+else:
+
+    image = Image.open(
+        uploaded_file
+    ).convert("RGB")
+
+    width, height = image.size
+
+    st.divider()
+
+    # ========================================================
+    # INPUT PREVIEW
+    # ========================================================
+
+    st.subheader(
+        "Input image"
+    )
+
+    input_left, input_right = st.columns(
+        [1.25, 0.75]
+    )
+
+    with input_left:
+
+        st.image(
+            image,
+            width=560
+        )
+
+    with input_right:
+
+        st.metric(
+            "Resolution",
+            f"{width} × {height}"
+        )
+
+        st.metric(
+            "Format",
+            uploaded_file.type.replace(
+                "image/",
+                ""
+            ).upper()
+        )
+
+        st.metric(
+            "Segmentation",
+            "SINet-V2"
+        )
+
+        st.caption(
+            "The image will be analysed using "
+            "the trained camouflage segmentation model."
+        )
+
+    st.divider()
+
+    # ========================================================
+    # ANALYZE BUTTON
+    # ========================================================
+
+    analyze = st.button(
+        "🚀 ANALYZE CAMOUFLAGE",
+        use_container_width=True
+    )
+
+    if analyze:
+
+        try:
+
+            # =================================================
+            # MODEL
+            # =================================================
+
+            with st.spinner(
+                "Analysing hidden object..."
+            ):
+
+                image_array = np.array(
+                    image
+                )
+
+                result = predict(
+                    image_array
+                )
+
+            st.success(
+                "Analysis completed."
+            )
+
+            # =================================================
+            # RESULTS
+            # =================================================
+
+            original = result[
+                "original"
+            ]
+
+            boundary = result[
+                "boundary"
+            ]
+
+            overlay = result[
+                "overlay"
+            ]
+
+            mask = result[
+                "mask"
+            ]
+
+            crop = result[
+                "crop"
+            ]
+
+            class_name = result[
+                "class_name"
+            ]
+
+            confidence = float(
+                result[
+                    "confidence"
+                ]
+            )
+
+            # =================================================
+            # MAIN DETECTION
+            # =================================================
+
+            st.subheader(
+                "Detection result"
+            )
+
+            st.caption(
+                "Compare the original scene with the detected camouflage."
+            )
+
+            result_left, result_right = st.columns(
+                2
+            )
+
+            with result_left:
+
+                st.write(
+                    "### Original"
+                )
+
+                display_image(
+                    original,
+                    max_width=560,
+                    max_height=390,
+                    caption="Original uploaded image"
+                )
+
+            with result_right:
+
+                st.write(
+                    "### Detected"
+                )
+
+                display_image(
+                    overlay,
+                    max_width=560,
+                    max_height=390,
+                    caption="Camouflaged object highlighted"
+                )
+
+            st.divider()
+
+            # =================================================
+            # AI PREDICTION
+            # =================================================
+
+            st.subheader(
+                "What did the AI find?"
+            )
+
+            prediction_left, prediction_right = st.columns(
+                2
+            )
+
+            with prediction_left:
+
+                st.metric(
+                    "Predicted object",
+                    class_name
+                )
+
+                st.caption(
+                    "ResNet50 classification result"
+                )
+
+            with prediction_right:
+
+                st.metric(
+                    "Confidence",
+                    f"{confidence:.2f}%"
+                )
+
+                st.progress(
+                    min(
+                        max(
+                            confidence / 100.0,
+                            0.0
+                        ),
+                        1.0
+                    )
+                )
+
+            st.divider()
+
+            # =================================================
+            # ANALYSIS OUTPUTS
+            # =================================================
+
+            st.subheader(
+                "Detection outputs"
+            )
+
+            st.caption(
+                "Every important output generated by the pipeline."
+            )
+
+            # -------------------------------------------------
+            # ROW 1
+            # -------------------------------------------------
+
+            out1, out2, out3 = st.columns(
+                3
+            )
+
+            with out1:
+
+                st.write(
+                    "### 🎯 Boundary"
+                )
+
+                display_image(
+                    boundary,
+                    max_width=420,
+                    max_height=300,
+                    caption="Object boundary"
+                )
+
+            with out2:
+
+                st.write(
+                    "### 🟢 Overlay"
+                )
+
+                display_image(
+                    overlay,
+                    max_width=420,
+                    max_height=300,
+                    caption="Detection overlay"
+                )
+
+            with out3:
+
+                st.write(
+                    "### ⚪ Mask"
+                )
+
+                display_image(
+                    mask,
+                    max_width=420,
+                    max_height=300,
+                    caption="Segmentation mask"
+                )
+
+            # -------------------------------------------------
+            # CROP
+            # -------------------------------------------------
+
+            st.write("")
+
+            crop_left, crop_right = st.columns(
+                [0.9, 1.1]
+            )
+
+            with crop_left:
+
+                st.write(
+                    "### ✂️ Isolated object"
+                )
+
+                if crop is not None:
+
+                    display_image(
+                        crop,
+                        max_width=430,
+                        max_height=320,
+                        caption=f"Detected: {class_name}"
                     )
 
-# ==================== FOOTER ====================
-st.markdown("""
-<div class="footer">
-    <p>🐾 Camouflage Breaker Pro | Built with PyTorch, Streamlit, and ❤️</p>
-    <p style="font-size: 0.8rem;">Detects 69 species of camouflaged animals | Accuracy: 85%+</p>
-</div>
-""", unsafe_allow_html=True)
+                else:
+
+                    st.warning(
+                        "Object crop could not be generated."
+                    )
+
+            with crop_right:
+
+                st.write(
+                    "### Identification"
+                )
+
+                st.metric(
+                    "Object",
+                    class_name
+                )
+
+                st.metric(
+                    "Confidence",
+                    f"{confidence:.2f}%"
+                )
+
+                st.write(
+                    "The isolated object is passed to "
+                    "the trained ResNet50 classifier."
+                )
+
+            st.divider()
+
+            # =================================================
+            # AI PIPELINE
+            # =================================================
+
+            st.subheader(
+                "AI pipeline"
+            )
+
+            p1, p2, p3, p4 = st.columns(
+                4
+            )
+
+            with p1:
+
+                st.write(
+                    "### 01"
+                )
+
+                st.write(
+                    "**Locate**"
+                )
+
+                st.caption(
+                    "SINet-V2 searches for the hidden object."
+                )
+
+            with p2:
+
+                st.write(
+                    "### 02"
+                )
+
+                st.write(
+                    "**Segment**"
+                )
+
+                st.caption(
+                    "The object is converted into a pixel mask."
+                )
+
+            with p3:
+
+                st.write(
+                    "### 03"
+                )
+
+                st.write(
+                    "**Isolate**"
+                )
+
+                st.caption(
+                    "The detected region is cropped from the scene."
+                )
+
+            with p4:
+
+                st.write(
+                    "### 04"
+                )
+
+                st.write(
+                    "**Identify**"
+                )
+
+                st.caption(
+                    "ResNet50 predicts the object category."
+                )
+
+            st.divider()
+
+            # =================================================
+            # MODEL INFORMATION
+            # =================================================
+
+            with st.expander(
+                "🧠 Model information"
+            ):
+
+                model_left, model_right = st.columns(
+                    2
+                )
+
+                with model_left:
+
+                    st.write(
+                        "### SINet-V2"
+                    )
+
+                    st.write(
+                        "**Role:** Camouflaged object segmentation"
+                    )
+
+                    st.write(
+                        "**Input:** 352 × 352"
+                    )
+
+                    st.write(
+                        "**Dataset:** COD10K"
+                    )
+
+                    st.write(
+                        "**Mean IoU:** 71.91%"
+                    )
+
+                    st.write(
+                        "**Mean Dice:** 76.57%"
+                    )
+
+                with model_right:
+
+                    st.write(
+                        "### ResNet50"
+                    )
+
+                    st.write(
+                        "**Role:** Object classification"
+                    )
+
+                    st.write(
+                        "**Input:** 224 × 224"
+                    )
+
+                    st.write(
+                        "**Classes:** 69"
+                    )
+
+                    st.write(
+                        "**Dataset:** COD10K"
+                    )
+
+            # =================================================
+            # DOWNLOAD
+            # =================================================
+
+            st.subheader(
+                "Export"
+            )
+
+            st.caption(
+                "Download the detected image."
+            )
+
+            # Convert OpenCV BGR → RGB before saving.
+            overlay_rgb = bgr_to_rgb(
+                overlay
+            )
+
+            output_image = Image.fromarray(
+                overlay_rgb
+            )
+
+            image_bytes = io.BytesIO()
+
+            output_image.save(
+                image_bytes,
+                format="JPEG",
+                quality=95
+            )
+
+            image_bytes.seek(0)
+
+            st.download_button(
+                label="⬇️ DOWNLOAD DETECTED IMAGE",
+                data=image_bytes,
+                file_name="camouflage_breaker_result.jpg",
+                mime="image/jpeg",
+                use_container_width=True
+            )
+
+        except Exception as error:
+
+            st.error(
+                "Image analysis failed."
+            )
+
+            st.exception(
+                error
+            )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "🎯 Camouflage Breaker  •  SINet-V2  •  ResNet50  •  COD10K"
+)

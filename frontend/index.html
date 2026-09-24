@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Camouflage Breaker | AI Detection System</title>
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
+    <link
+        rel="stylesheet"
+        href="css/style.css"
+    >
+</head>
+
+<body>
+
+<!-- =========================================================
+     NAVIGATION
+========================================================= -->
+
+<nav class="navbar">
+
+    <div class="brand">
+
+        <div class="brand-mark">
+            CB
+        </div>
+
+        <div class="brand-text">
+
+            <strong>
+                CAMOUFLAGE
+            </strong>
+
+            <span>
+                BREAKER
+            </span>
+
+        </div>
+
+    </div>
+
+    <div class="system-status">
+
+        <span class="status-dot"></span>
+
+        AI SYSTEM ONLINE
+
+    </div>
+
+</nav>
+
+
+<!-- =========================================================
+     HERO
+========================================================= -->
+
+<header class="hero">
+
+    <div class="hero-content">
+
+        <div class="eyebrow">
+            AI-POWERED COMPUTER VISION
+        </div>
+
+        <h1>
+            SEE WHAT
+            <span>HIDES.</span>
+        </h1>
+
+        <p>
+            Advanced camouflage detection using deep learning
+            segmentation and object classification.
+        </p>
+
+    </div>
+
+
+    <!-- SCANNING VISUAL -->
+
+    <div class="scan-container">
+
+        <div class="scan-frame">
+
+            <div class="corner top-left"></div>
+            <div class="corner top-right"></div>
+            <div class="corner bottom-left"></div>
+            <div class="corner bottom-right"></div>
+
+            <div class="scan-grid"></div>
+
+            <div class="radar radar-one"></div>
+            <div class="radar radar-two"></div>
+
+            <div class="scan-line"></div>
+
+            <div class="target">
+
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+
+            </div>
+
+            <div class="scan-label">
+                COMPUTER VISION ACTIVE
+            </div>
+
+        </div>
+
+    </div>
+
+</header>
+
+
+<!-- =========================================================
+     MAIN
+========================================================= -->
+
+<main>
+
+
+<!-- =========================================================
+     UPLOAD SECTION
+========================================================= -->
+
+<section class="upload-section">
+
+    <div class="section-heading">
+
+        <span>
+            01
+        </span>
+
+        <div>
+
+            <h2>
+                Upload Image
+            </h2>
+
+            <p>
+                Provide an image for AI-powered camouflage analysis.
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div
+        class="upload-card"
+        id="uploadCard"
+    >
+
+        <input
+            type="file"
+            id="fileInput"
+            accept="image/png,image/jpeg,image/jpg"
+            hidden
+        >
+
+        <div
+            class="upload-content"
+            id="uploadContent"
+        >
+
+            <div class="upload-icon">
+                +
+            </div>
+
+            <h3>
+                DROP IMAGE HERE
+            </h3>
+
+            <p>
+                or click to browse
+            </p>
+
+            <span class="upload-format">
+                JPG / JPEG / PNG
+            </span>
+
+        </div>
+
+
+        <!-- IMAGE PREVIEW -->
+
+        <div
+            class="preview-area"
+            id="previewArea"
+        >
+
+            <div class="preview-image-wrap">
+
+                <img
+                    id="previewImage"
+                    alt="Selected image preview"
+                >
+
+            </div>
+
+            <div class="preview-details">
+
+                <div>
+
+                    <span class="technical-label">
+                        SELECTED IMAGE
+                    </span>
+
+                    <strong id="previewFilename">
+                        image.jpg
+                    </strong>
+
+                </div>
+
+                <button
+                    class="remove-button"
+                    id="removeButton"
+                    type="button"
+                >
+                    REMOVE
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="file-status" id="fileStatus"></div>
+
+
+    <div class="action-row">
+
+        <button
+            class="primary-button"
+            id="detectButton"
+            type="button"
+            disabled
+        >
+
+            <span>
+                DETECT CAMOUFLAGE
+            </span>
+
+            <span class="button-arrow">
+                →
+            </span>
+
+        </button>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     PROCESSING SECTION
+========================================================= -->
+
+<section
+    class="processing-section"
+    id="processingPanel"
+>
+
+    <div class="processing-header">
+
+        <div>
+
+            <span class="technical-label">
+                AI PROCESSING
+            </span>
+
+            <h2>
+                ANALYZING IMAGE
+            </h2>
+
+        </div>
+
+        <div class="processing-spinner"></div>
+
+    </div>
+
+
+    <div class="processing-progress">
+
+        <div
+            class="progress-fill"
+            id="progressFill"
+        ></div>
+
+    </div>
+
+
+    <div class="processing-steps">
+
+        <div
+            class="processing-step active"
+            id="stepSegment"
+        >
+
+            <span class="step-number">
+                01
+            </span>
+
+            <span>
+                SEGMENTING OBJECT
+            </span>
+
+            <span class="step-state">
+                ...
+            </span>
+
+        </div>
+
+
+        <div
+            class="processing-step"
+            id="stepPattern"
+        >
+
+            <span class="step-number">
+                02
+            </span>
+
+            <span>
+                ANALYZING PATTERN
+            </span>
+
+            <span class="step-state">
+                WAIT
+            </span>
+
+        </div>
+
+
+        <div
+            class="processing-step"
+            id="stepClassify"
+        >
+
+            <span class="step-number">
+                03
+            </span>
+
+            <span>
+                CLASSIFYING OBJECT
+            </span>
+
+            <span class="step-state">
+                WAIT
+            </span>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     ERROR
+========================================================= -->
+
+<section
+    class="error-panel"
+    id="errorPanel"
+>
+
+    <div class="error-icon">
+        !
+    </div>
+
+    <div>
+
+        <span class="technical-label">
+            SYSTEM ERROR
+        </span>
+
+        <h3 id="errorTitle">
+            Detection failed
+        </h3>
+
+        <p id="errorMessage">
+            Something went wrong while processing the image.
+        </p>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     RESULTS
+========================================================= -->
+
+<section
+    class="results-section"
+    id="resultsSection"
+>
+
+    <div class="section-heading">
+
+        <span>
+            02
+        </span>
+
+        <div>
+
+            <h2>
+                Analysis Results
+            </h2>
+
+            <p>
+                AI-generated detection and classification results.
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         ANALYSIS SUMMARY
+    ====================================================== -->
+
+    <div class="analysis-summary">
+
+        <div class="summary-main">
+
+            <span class="technical-label">
+                DETECTION STATUS
+            </span>
+
+            <div class="detection-status">
+
+                <span
+                    class="result-status-dot"
+                    id="resultStatusDot"
+                ></span>
+
+                <span id="resultBadge">
+                    OBJECT DETECTED
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="summary-divider"></div>
+
+
+        <div class="summary-item">
+
+            <span class="technical-label">
+                IDENTIFIED OBJECT
+            </span>
+
+            <strong id="predictionName">
+                —
+            </strong>
+
+        </div>
+
+
+        <div class="summary-divider"></div>
+
+
+        <div class="summary-item">
+
+            <span class="technical-label">
+                CONFIDENCE
+            </span>
+
+            <strong id="confidenceValue">
+                0%
+            </strong>
+
+        </div>
+
+
+        <div class="summary-divider"></div>
+
+
+        <div class="summary-item">
+
+            <span class="technical-label">
+                AI PIPELINE
+            </span>
+
+            <strong>
+                SINet-V2 + ResNet50
+            </strong>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         PREDICTION CARD
+    ====================================================== -->
+
+    <div class="prediction-card">
+
+        <div class="prediction-header">
+
+            <div>
+
+                <span class="technical-label">
+                    OBJECT CLASSIFICATION
+                </span>
+
+                <h3 id="predictionTitle">
+                    —
+                </h3>
+
+            </div>
+
+            <div class="prediction-symbol">
+                AI
+            </div>
+
+        </div>
+
+
+        <div class="confidence-section">
+
+            <div class="confidence-top">
+
+                <span>
+                    MODEL CONFIDENCE
+                </span>
+
+                <strong id="confidenceValueLarge">
+                    0%
+                </strong>
+
+            </div>
+
+            <div class="confidence-track">
+
+                <div
+                    class="confidence-fill"
+                    id="confidenceFill"
+                ></div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         VISUAL RESULTS
+    ====================================================== -->
+
+    <div class="visual-results">
+
+        <div class="visual-results-header">
+
+            <div>
+
+                <span class="technical-label">
+                    COMPUTER VISION OUTPUT
+                </span>
+
+                <h3>
+                    Detection Breakdown
+                </h3>
+
+            </div>
+
+            <span class="visual-results-count">
+                04 OUTPUTS
+            </span>
+
+        </div>
+
+
+        <div class="result-grid">
+
+
+            <!-- ORIGINAL -->
+
+            <article class="result-card">
+
+                <div class="result-card-header">
+
+                    <div>
+
+                        <span class="result-index">
+                            01
+                        </span>
+
+                        <h4>
+                            Original
+                        </h4>
+
+                    </div>
+
+                    <span class="result-type">
+                        INPUT
+                    </span>
+
+                </div>
+
+                <div class="result-image-wrap">
+
+                    <img
+                        id="originalResult"
+                        alt="Original image"
+                    >
+
+                </div>
+
+            </article>
+
+
+            <!-- OVERLAY -->
+
+            <article class="result-card featured-result">
+
+                <div class="result-card-header">
+
+                    <div>
+
+                        <span class="result-index">
+                            02
+                        </span>
+
+                        <h4>
+                            AI Overlay
+                        </h4>
+
+                    </div>
+
+                    <span class="result-type highlight">
+                        DETECTED
+                    </span>
+
+                </div>
+
+                <div class="result-image-wrap">
+
+                    <img
+                        id="overlayResult"
+                        alt="AI detection overlay"
+                    >
+
+                </div>
+
+            </article>
+
+
+            <!-- BOUNDARY -->
+
+            <article class="result-card">
+
+                <div class="result-card-header">
+
+                    <div>
+
+                        <span class="result-index">
+                            03
+                        </span>
+
+                        <h4>
+                            Boundary
+                        </h4>
+
+                    </div>
+
+                    <span class="result-type">
+                        CONTOUR
+                    </span>
+
+                </div>
+
+                <div class="result-image-wrap">
+
+                    <img
+                        id="boundaryResult"
+                        alt="Object boundary"
+                    >
+
+                </div>
+
+            </article>
+
+
+            <!-- CROP -->
+
+            <article class="result-card">
+
+                <div class="result-card-header">
+
+                    <div>
+
+                        <span class="result-index">
+                            04
+                        </span>
+
+                        <h4>
+                            Extracted Object
+                        </h4>
+
+                    </div>
+
+                    <span class="result-type">
+                        CROP
+                    </span>
+
+                </div>
+
+                <div class="result-image-wrap">
+
+                    <img
+                        id="cropResult"
+                        alt="Extracted object"
+                    >
+
+                </div>
+
+            </article>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         ACTIONS
+    ====================================================== -->
+
+    <div class="result-actions">
+
+        <button
+            class="secondary-button"
+            id="downloadButton"
+            type="button"
+        >
+
+            <span>
+                ↓
+            </span>
+
+            DOWNLOAD ANALYSIS
+
+        </button>
+
+
+        <button
+            class="primary-button"
+            id="newScanButton"
+            type="button"
+        >
+
+            NEW SCAN
+
+            <span class="button-arrow">
+                →
+            </span>
+
+        </button>
+
+    </div>
+
+</section>
+
+</main>
+
+
+<!-- =========================================================
+     FOOTER
+========================================================= -->
+
+<footer class="footer">
+
+    <div>
+
+        <strong>
+            CAMOUFLAGE BREAKER
+        </strong>
+
+        <span>
+            AI COMPUTER VISION SYSTEM
+        </span>
+
+    </div>
+
+    <span>
+        SINet-V2 • ResNet50
+    </span>
+
+</footer>
+
+
+<script
+    src="js/app.js"
+></script>
+
+</body>
+
+</html>

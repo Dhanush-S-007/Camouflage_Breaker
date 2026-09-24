@@ -472,4 +472,10 @@ Built as a deep-learning computer vision project focused on practical camouflage
 
 ## License
 
-No project license has been specified yet. Until a license is added, the repository should not be assumed to grant permission to reuse, modify, or redistribute the project code.
+The original Camouflage Breaker project code is licensed under the **Apache License 2.0**.
+
+See the root [LICENSE](LICENSE) file for the complete license text.
+
+This repository also contains third-party components, including the SINet-V2 source under `models/sinetv2/source/`. Those components remain subject to their original licenses and attribution requirements. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The project license does not override the license terms of third-party dependencies or datasets.

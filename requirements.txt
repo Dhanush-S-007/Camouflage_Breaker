@@ -6,7 +6,6 @@ pandas
 matplotlib
 albumentations
 segmentation-models-pytorch
-streamlit
 Pillow
 scikit-learn
 tqdm

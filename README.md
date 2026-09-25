@@ -560,7 +560,7 @@ The inference pipeline has the public GitHub Release URLs as deployment defaults
 - [x] Result visualization
 - [x] Downloadable analysis package
 - [x] Git repository cleanup and model-weight exclusion
-- [x] Deployment configuration and Render Blueprint
+- [x] Free Streamlit deployment configuration
 
 ## Limitations
 

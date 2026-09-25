@@ -55,13 +55,22 @@ def ensure_model_file(path, env_name):
     if os.path.exists(path):
         return
 
-    url = os.getenv(env_name, "").strip()
+    default_urls = {
+        "CAMOUFLAGE_SEGMENTATION_MODEL_URL":
+            "https://github.com/Dhanush-S-007/Camouflage_Breaker/releases/download/v1.0-models/sinetv2_cod10k_40epoch_best.pth",
+        "CAMOUFLAGE_CLASSIFIER_MODEL_URL":
+            "https://github.com/Dhanush-S-007/Camouflage_Breaker/releases/download/v1.0-models/classifier_best.pth",
+    }
+
+    url = os.getenv(
+        env_name,
+        default_urls.get(env_name, "")
+    ).strip()
 
     if not url:
         raise FileNotFoundError(
             f"Required model file not found: {path}\n"
-            f"Set {env_name} to a direct downloadable model URL "
-            f"for deployed environments."
+            f"Set {env_name} to a direct downloadable model URL."
         )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)

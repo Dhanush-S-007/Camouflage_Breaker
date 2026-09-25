@@ -474,36 +474,59 @@ The project uses the official SINet-V2 source architecture while fine-tuning it 
 
 ## Public Deployment
 
-The repository includes a Render Blueprint at `render.yaml` for the production architecture.
+For a no-cost public demo, the repository includes a dedicated Streamlit entrypoint:
 
 ```text
 Internet
    │
    ▼
-Spring Boot Web Service
+Streamlit Community Cloud
    │
-   │ private service connection
-   ▼
-FastAPI AI Service
-   │
-   ├── SINet-V2
-   └── ResNet50
+   ├── Camouflage Breaker UI
+   └── SINet-V2 + ResNet50 inference
 ```
 
-Render can deploy services directly from this GitHub repository and provides public HTTPS URLs for web services. The Blueprint configures the Spring Boot service and FastAPI service together, including the private service connection between them.
+Streamlit Community Cloud supports public GitHub repositories and provides free app hosting. The deployment uses the trained model checkpoints from the GitHub Release instead of storing the large `.pth` files in the source tree.
 
-### Deployment prerequisites
+### Free deployment
 
-The trained model checkpoints are intentionally not stored in GitHub. Before deploying the AI service, provide direct downloadable URLs for:
+1. Open Streamlit Community Cloud.
+2. Sign in with GitHub.
+3. Choose **Create app**.
+4. Select repository: `Dhanush-S-007/Camouflage_Breaker`.
+5. Select branch: `main`.
+6. Set the entrypoint to `streamlit_app.py`.
+7. Use Python 3.11 in **Advanced settings**.
+8. Deploy.
+
+The app downloads the two public model checkpoints when the inference pipeline first starts:
 
 ```text
-CAMOUFLAGE_SEGMENTATION_MODEL_URL
-CAMOUFLAGE_CLASSIFIER_MODEL_URL
+SINet-V2 checkpoint: 294 MB
+ResNet50 checkpoint: 94.1 MB
 ```
 
-The AI service downloads a missing checkpoint at startup and stores it in the runtime model directory.
+No local Python, Java, dataset, or model files are required for users of the public app.
 
-Required model files:
+### Local vs public deployment
+
+Local development keeps the full production architecture:
+
+```text
+Frontend → Spring Boot → FastAPI → SINet-V2 + ResNet50
+```
+
+The free public demo uses:
+
+```text
+Streamlit Community Cloud → SINet-V2 + ResNet50
+```
+
+This deployment variant exists specifically to avoid paid hosting while keeping the same trained inference pipeline and model weights.
+
+### Model files
+
+The trained checkpoints remain outside the normal Git history:
 
 ```text
 saved_models/
@@ -518,38 +541,7 @@ The class mapping remains tracked in Git:
 saved_models/class_mapping.json
 ```
 
-### Render deployment
-
-1. Push the repository to GitHub.
-2. Open Render and create a new **Blueprint**.
-3. Connect `Dhanush-S-007/Camouflage_Breaker`.
-4. Select the `main` branch.
-5. Render reads `render.yaml`.
-6. Provide the two model download URLs when prompted.
-7. Deploy the Blueprint.
-8. Wait for both health checks:
-   - FastAPI: `/health`
-   - Spring Boot: `/api/health`
-9. Open the public URL assigned to `camouflage-breaker-web`.
-
-The Spring Boot service serves the frontend, so users only need the public web URL. They do not need Python, Java, the dataset, or the model files locally.
-
-### Runtime requirements
-
-The AI service is configured for a 2 GB RAM web-service plan because both the SINet-V2 segmentation model and ResNet50 classifier are loaded into the same inference process. A free 512 MB instance is intended for testing and is not a suitable target for this model-serving workload.
-
-### Local vs public configuration
-
-Local development continues to use:
-
-```text
-Spring Boot → http://127.0.0.1:8000
-```
-
-The Java backend reads `AI_SERVICE_URL` from the environment and falls back to the local address when the variable is not set.
-
-The deployed Render configuration automatically supplies the FastAPI service's private hostname and port through `render.yaml`.
-
+The inference pipeline has the public GitHub Release URLs as deployment defaults, while environment variables can still override them for other hosting providers.
 
 ## Current Status
 

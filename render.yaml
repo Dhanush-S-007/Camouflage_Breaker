@@ -16,10 +16,10 @@ services:
         value: "3.11.0"
 
       - key: CAMOUFLAGE_SEGMENTATION_MODEL_URL
-        sync: false
+        value: https://github.com/Dhanush-S-007/Camouflage_Breaker/releases/download/v1.0-models/sinetv2_cod10k_40epoch_best.pth
 
       - key: CAMOUFLAGE_CLASSIFIER_MODEL_URL
-        sync: false
+        value: https://github.com/Dhanush-S-007/Camouflage_Breaker/releases/download/v1.0-models/classifier_best.pth
 
   - type: web
     name: camouflage-breaker-web

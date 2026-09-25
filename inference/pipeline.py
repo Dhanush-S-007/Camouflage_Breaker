@@ -6,6 +6,9 @@
 import os
 import sys
 import json
+import urllib.request
+import urllib.parse
+import tempfile
 
 import cv2
 import numpy as np
@@ -42,6 +45,50 @@ SINET_SOURCE = os.path.join(
 sys.path.insert(0, SINET_SOURCE)
 
 from lib.Network_Res2Net_GRA_NCD import Network
+
+
+# ============================================================
+# DEPLOYMENT MODEL DOWNLOAD
+# ============================================================
+
+def ensure_model_file(path, env_name):
+    if os.path.exists(path):
+        return
+
+    url = os.getenv(env_name, "").strip()
+
+    if not url:
+        raise FileNotFoundError(
+            f"Required model file not found: {path}\n"
+            f"Set {env_name} to a direct downloadable model URL "
+            f"for deployed environments."
+        )
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    print(f"Downloading model for {env_name}...")
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(
+            f"{env_name} must be an http/https URL."
+        )
+
+    fd, temp_path = tempfile.mkstemp(
+        prefix="model_",
+        suffix=".download",
+        dir=os.path.dirname(path)
+    )
+    os.close(fd)
+
+    try:
+        urllib.request.urlretrieve(url, temp_path)
+        os.replace(temp_path, path)
+        print(f"Model ready: {path}")
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
 
 
 # ============================================================
@@ -152,17 +199,14 @@ class CamouflageBreakerPipeline:
             "\nLoading SINet-V2 segmentation model..."
         )
 
-        if not os.path.exists(
-            seg_model_path
-        ):
-
-            raise FileNotFoundError(
-                f"SINet-V2 model not found:\n"
-                f"{seg_model_path}"
-            )
+        ensure_model_file(
+            seg_model_path,
+            "CAMOUFLAGE_SEGMENTATION_MODEL_URL"
+        )
 
         self.seg_model = Network(
-            channel=32
+            channel=32,
+            imagenet_pretrained=False
         )
 
         checkpoint = torch.load(
@@ -207,14 +251,10 @@ class CamouflageBreakerPipeline:
             "\nLoading trained ResNet50 classifier..."
         )
 
-        if not os.path.exists(
-            classifier_model_path
-        ):
-
-            raise FileNotFoundError(
-                f"Classifier model not found:\n"
-                f"{classifier_model_path}"
-            )
+        ensure_model_file(
+            classifier_model_path,
+            "CAMOUFLAGE_CLASSIFIER_MODEL_URL"
+        )
 
         classifier_checkpoint = torch.load(
             classifier_model_path,

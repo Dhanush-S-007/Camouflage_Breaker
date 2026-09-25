@@ -38,6 +38,42 @@ Class + Confidence
 Web Result Dashboard
 ```
 
+## Project Development Journey
+
+The repository intentionally separates the final production implementation from historical development work. Earlier approaches are preserved instead of deleted so the project documents its progression from the initial segmentation model to the final full-stack application.
+
+The chronological development record is available in [docs/PROJECT_JOURNEY.md](docs/PROJECT_JOURNEY.md).
+
+```text
+Problem Definition
+      ↓
+COD10K-v3 Dataset
+      ↓
+Initial ResUNet Segmentation
+      ↓
+SINet-V2 Experiments
+      ↓
+40-Epoch SINet-V2 Fine-Tuning
+      ↓
+Segmentation Evaluation
+      ↓
+Object Extraction + Object Gate
+      ↓
+69-Class ResNet50
+      ↓
+Python Inference Pipeline
+      ↓
+FastAPI AI Service
+      ↓
+Spring Boot Backend
+      ↓
+Frontend
+      ↓
+End-to-End Application
+```
+
+Historical development code is stored under [historical/](historical/) and is not used by the production inference path.
+
 ## Key Features
 
 - **Camouflaged object segmentation** using a fine-tuned SINet-V2 model.
@@ -165,11 +201,19 @@ Camouflage_Breaker/
 │   └── class_mapping.json
 │
 ├── training/
-│   ├── train_sinetv2.py
-│   ├── evaluate_sinetv2.py
-│   ├── evaluate_sinetv2_finetuned.py
-│   ├── evaluate_sinetv2_full.py
-│   └── test_sinetv2.py
+│   ├── train_sinetv2_40.py       # Final SINet-V2 training
+│   ├── evaluate_sinetv2_full.py  # Final 4,000-image evaluation
+│   ├── train_classifier_final.py # Final classifier training
+│   └── evaluate_pipeline.py      # Pipeline evaluation utilities
+│
+├── historical/
+│   ├── initial-resunet/          # Initial segmentation approach
+│   ├── segmentation-experiments/ # Earlier SINet-V2 / SAM 2 experiments
+│   ├── classifier-development/   # Earlier classifier development
+│   └── README.md
+│
+├── docs/
+│   └── PROJECT_JOURNEY.md        # Chronological development story
 │
 ├── utils/
 │   ├── object_gate.py

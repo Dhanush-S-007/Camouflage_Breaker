@@ -472,6 +472,85 @@ Official repository: https://github.com/GewelsJI/SINet-V2
 
 The project uses the official SINet-V2 source architecture while fine-tuning it for the COD10K-based Camouflage Breaker pipeline.
 
+## Public Deployment
+
+The repository includes a Render Blueprint at `render.yaml` for the production architecture.
+
+```text
+Internet
+   │
+   ▼
+Spring Boot Web Service
+   │
+   │ private service connection
+   ▼
+FastAPI AI Service
+   │
+   ├── SINet-V2
+   └── ResNet50
+```
+
+Render can deploy services directly from this GitHub repository and provides public HTTPS URLs for web services. The Blueprint configures the Spring Boot service and FastAPI service together, including the private service connection between them.
+
+### Deployment prerequisites
+
+The trained model checkpoints are intentionally not stored in GitHub. Before deploying the AI service, provide direct downloadable URLs for:
+
+```text
+CAMOUFLAGE_SEGMENTATION_MODEL_URL
+CAMOUFLAGE_CLASSIFIER_MODEL_URL
+```
+
+The AI service downloads a missing checkpoint at startup and stores it in the runtime model directory.
+
+Required model files:
+
+```text
+saved_models/
+├── sinetv2/
+│   └── sinetv2_cod10k_40epoch_best.pth
+└── classifier_best.pth
+```
+
+The class mapping remains tracked in Git:
+
+```text
+saved_models/class_mapping.json
+```
+
+### Render deployment
+
+1. Push the repository to GitHub.
+2. Open Render and create a new **Blueprint**.
+3. Connect `Dhanush-S-007/Camouflage_Breaker`.
+4. Select the `main` branch.
+5. Render reads `render.yaml`.
+6. Provide the two model download URLs when prompted.
+7. Deploy the Blueprint.
+8. Wait for both health checks:
+   - FastAPI: `/health`
+   - Spring Boot: `/api/health`
+9. Open the public URL assigned to `camouflage-breaker-web`.
+
+The Spring Boot service serves the frontend, so users only need the public web URL. They do not need Python, Java, the dataset, or the model files locally.
+
+### Runtime requirements
+
+The AI service is configured for a 2 GB RAM web-service plan because both the SINet-V2 segmentation model and ResNet50 classifier are loaded into the same inference process. A free 512 MB instance is intended for testing and is not a suitable target for this model-serving workload.
+
+### Local vs public configuration
+
+Local development continues to use:
+
+```text
+Spring Boot → http://127.0.0.1:8000
+```
+
+The Java backend reads `AI_SERVICE_URL` from the environment and falls back to the local address when the variable is not set.
+
+The deployed Render configuration automatically supplies the FastAPI service's private hostname and port through `render.yaml`.
+
+
 ## Current Status
 
 - [x] COD10K dataset verification
@@ -489,10 +568,11 @@ The project uses the official SINet-V2 source architecture while fine-tuning it 
 - [x] Result visualization
 - [x] Downloadable analysis package
 - [x] Git repository cleanup and model-weight exclusion
+- [x] Deployment configuration and Render Blueprint
 
 ## Limitations
 
-- The application is currently designed for local deployment.
+- Public deployment requires external hosting for the trained model checkpoints.
 - Large trained checkpoints are not stored in Git.
 - Classification performance should be evaluated separately from the reported segmentation metrics.
 - Predictions depend on segmentation quality and the training distribution of the 69-class classifier.

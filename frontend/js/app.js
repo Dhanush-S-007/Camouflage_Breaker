@@ -874,8 +874,8 @@ Area Ratio       : ${
 }
 
 Largest Component: ${
-    gate.largest_component !== undefined
-        ? Number(gate.largest_component).toFixed(4)
+    gate.largest_component_ratio !== undefined
+        ? Number(gate.largest_component_ratio).toFixed(4)
         : "N/A"
 }
 

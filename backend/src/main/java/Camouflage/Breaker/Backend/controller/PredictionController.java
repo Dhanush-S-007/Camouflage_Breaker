@@ -10,12 +10,22 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
+import java.time.Duration;
+
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
 public class PredictionController {
 
     private final RestTemplate restTemplate = new RestTemplate();
+
+    private String getAiServiceUrl() {
+        String url = System.getenv().getOrDefault(
+                "AI_SERVICE_URL",
+                "http://127.0.0.1:8000"
+        );
+        return url.replaceAll("/+$", "");
+    }
 
     @GetMapping("/health")
     public Map<String, Object> health() {
@@ -84,7 +94,7 @@ public class PredictionController {
 
             ResponseEntity<String> response =
                     restTemplate.postForEntity(
-                            "http://127.0.0.1:8000/predict",
+                            getAiServiceUrl() + "/predict",
                             request,
                             String.class
                     );

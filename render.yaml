@@ -1,0 +1,40 @@
+services:
+
+  - type: web
+    name: camouflage-breaker-ai
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn ai_service.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+      - key: CAMOUFLAGE_SEGMENTATION_MODEL_URL
+        sync: false
+
+      - key: CAMOUFLAGE_CLASSIFIER_MODEL_URL
+        sync: false
+
+  - type: web
+    name: camouflage-breaker-web
+    runtime: docker
+    region: singapore
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: camouflage-breaker-ai
+          property: hostport

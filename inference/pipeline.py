@@ -1476,7 +1476,16 @@ if __name__ == "__main__":
 # Used by ai_service/main.py
 # ============================================================
 
-_pipeline = CamouflageBreakerPipeline()
+_pipeline = None
+
+
+def get_pipeline():
+    global _pipeline
+
+    if _pipeline is None:
+        _pipeline = CamouflageBreakerPipeline()
+
+    return _pipeline
 
 
 def predict(image):
@@ -1484,4 +1493,4 @@ def predict(image):
     Main prediction function used by FastAPI.
     """
 
-    return _pipeline.predict(image)
+    return get_pipeline().predict(image)
